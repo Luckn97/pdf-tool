@@ -6,7 +6,6 @@ from PIL import Image, ImageDraw
 from skimage.metrics import structural_similarity as ssim
 from streamlit_drawable_canvas import st_canvas
 import difflib
-import io
 
 UPLOAD_DIR = "uploads"
 OUTPUT_DIR = "outputs"
@@ -79,7 +78,7 @@ def detect_diff(img1, img2, sensitivity):
 
     boxes = []
     for y, x in coords[::300]:
-        box = (x, y, x+20, y+20)
+        box = (x, y, x + 20, y + 20)
         boxes.append(box)
         draw.rectangle(box, outline="red", width=1)
 
@@ -189,7 +188,7 @@ with menu[0]:
                     st.components.v1.html(html, height=400)
 
 # -----------------------------
-# SIGN TAB (FIXED)
+# SIGN TAB (FINAL FIXED)
 # -----------------------------
 with menu[1]:
     st.subheader("✍️ Sign PDF (Click to place signature)")
@@ -213,12 +212,6 @@ with menu[1]:
             ratio = MAX_WIDTH / img.width
             img = img.resize((int(img.width * ratio), int(img.height * ratio)))
 
-        # Convert image for canvas
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        buf.seek(0)
-        canvas_bg = Image.open(buf)
-
         st.markdown("### 1. Draw Signature")
 
         canvas_sig = st_canvas(
@@ -232,11 +225,15 @@ with menu[1]:
 
         st.markdown("### 2. Click on PDF where signature should be placed")
 
+        # 👇 WICHTIGER FIX: KEIN background_image mehr
+        st.image(img, use_column_width=True)
+
         canvas_pdf = st_canvas(
-            background_image=canvas_bg,
-            height=canvas_bg.height,
-            width=canvas_bg.width,
+            height=img.height,
+            width=img.width,
             drawing_mode="point",
+            stroke_color="red",
+            background_color="rgba(0,0,0,0)",
             key="pdf_click"
         )
 
