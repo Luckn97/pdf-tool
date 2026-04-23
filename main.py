@@ -1,91 +1,154 @@
-# =========================================================
-# 🤖 AI COMPARE (SMART)
-# =========================================================
-with menu[0]:
-    st.header("🤖 AI PDF Compare")
+import streamlit as st
+import pdfplumber
+import difflib
+from io import BytesIO
 
-    file1 = st.file_uploader("PDF 1", type=["pdf"], key="ai1")
-    file2 = st.file_uploader("PDF 2", type=["pdf"], key="ai2")
+st.set_page_config(page_title="PDF Toolkit PRO", layout="wide")
+
+# ======================
+# HEADER
+# ======================
+st.title("🚀 PDF Toolkit PRO")
+st.markdown("Compare • Convert • Sign")
+
+# ======================
+# MENU (FIXED)
+# ======================
+menu = st.radio(
+    "Select Feature",
+    ["Compare", "AI Compare", "Convert", "Sign"],
+    horizontal=True
+)
+
+# ======================
+# HELPER: TEXT EXTRACT
+# ======================
+def extract_text(pdf_file):
+    text = ""
+    with pdfplumber.open(pdf_file) as pdf:
+        for page in pdf.pages:
+            text += page.extract_text() or ""
+    return text
+
+# ======================
+# COMPARE (BASIC)
+# ======================
+if menu == "Compare":
+    st.header("📊 PDF Compare")
+
+    file1 = st.file_uploader("Upload PDF 1", type="pdf")
+    file2 = st.file_uploader("Upload PDF 2", type="pdf")
 
     if file1 and file2:
+        text1 = extract_text(file1)
+        text2 = extract_text(file2)
 
-        path1 = os.path.join(UPLOAD_DIR, file1.name)
-        path2 = os.path.join(UPLOAD_DIR, file2.name)
+        diff = list(difflib.ndiff(text1.splitlines(), text2.splitlines()))
 
-        with open(path1, "wb") as f:
-            f.write(file1.read())
+        st.subheader("Differences:")
+        for line in diff:
+            if line.startswith("- "):
+                st.markdown(f"🔴 {line}")
+            elif line.startswith("+ "):
+                st.markdown(f"🟢 {line}")
 
-        with open(path2, "wb") as f:
-            f.write(file2.read())
+# ======================
+# AI COMPARE (SMART)
+# ======================
+elif menu == "AI Compare":
+    st.header("🧠 AI Compare (Smart Diff)")
 
-        if st.button("🚀 Run AI Compare"):
+    file1 = st.file_uploader("Upload Original PDF", type="pdf")
+    file2 = st.file_uploader("Upload Modified PDF", type="pdf")
 
-            def extract_text(path):
-                text = ""
-                with pdfplumber.open(path) as pdf:
-                    for p in pdf.pages:
-                        text += p.extract_text() or ""
-                return text
+    if file1 and file2:
+        text1 = extract_text(file1)
+        text2 = extract_text(file2)
 
-            text1 = extract_text(path1)
-            text2 = extract_text(path2)
+        changes = list(difflib.unified_diff(
+            text1.split(),
+            text2.split(),
+            lineterm=""
+        ))
 
-            # SPLIT INTO SENTENCES
-            import re
-            s1 = re.split(r'(?<=[.!?]) +', text1)
-            s2 = re.split(r'(?<=[.!?]) +', text2)
+        st.subheader("Smart Changes:")
+        for line in changes:
+            if line.startswith("-"):
+                st.markdown(f"🔴 Removed: {line[1:]}")
+            elif line.startswith("+"):
+                st.markdown(f"🟢 Added: {line[1:]}")
 
-            from difflib import SequenceMatcher
+# ======================
+# CONVERT (SAFE VERSION)
+# ======================
+elif menu == "Convert":
+    st.header("🔄 Convert to PDF")
 
-            changes = []
+    uploaded = st.file_uploader("Upload TXT file", type=["txt"])
 
-            for line1 in s1:
-                best_ratio = 0
-                best_match = ""
+    if uploaded:
+        text = uploaded.read().decode("utf-8")
 
-                for line2 in s2:
-                    ratio = SequenceMatcher(None, line1, line2).ratio()
-                    if ratio > best_ratio:
-                        best_ratio = ratio
-                        best_match = line2
+        from reportlab.lib.pagesizes import letter
+        from reportlab.pdfgen import canvas
 
-                if best_ratio < 0.75:
-                    changes.append({
-                        "type": "removed",
-                        "text": line1
-                    })
-                else:
-                    if line1 != best_match:
-                        changes.append({
-                            "type": "modified",
-                            "old": line1,
-                            "new": best_match
-                        })
+        buffer = BytesIO()
+        c = canvas.Canvas(buffer, pagesize=letter)
 
-            # FIND ADDED
-            for line2 in s2:
-                if not any(line2 in c.get("new", "") for c in changes):
-                    if line2 not in s1:
-                        changes.append({
-                            "type": "added",
-                            "text": line2
-                        })
+        y = 750
+        for line in text.split("\n"):
+            c.drawString(50, y, line)
+            y -= 15
 
-            # -----------------------------
-            # OUTPUT
-            # -----------------------------
-            st.subheader("🧠 Smart Differences")
+        c.save()
+        buffer.seek(0)
 
-            for c in changes[:50]:
+        st.download_button(
+            "Download PDF",
+            buffer,
+            file_name="converted.pdf",
+            mime="application/pdf"
+        )
 
-                if c["type"] == "added":
-                    st.success(f"➕ Added: {c['text']}")
+# ======================
+# SIGN (BASIC STABLE)
+# ======================
+elif menu == "Sign":
+    st.header("✍️ PDF Sign (Basic Stable Version)")
 
-                elif c["type"] == "removed":
-                    st.error(f"➖ Removed: {c['text']}")
+    pdf_file = st.file_uploader("Upload PDF", type="pdf")
 
-                elif c["type"] == "modified":
-                    st.warning("✏️ Modified:")
-                    st.write("OLD:", c["old"])
-                    st.write("NEW:", c["new"])
-                    st.markdown("---")
+    signature_text = st.text_input("Enter Signature (for now text-based)")
+
+    if pdf_file and signature_text:
+        from PyPDF2 import PdfReader, PdfWriter
+        from reportlab.pdfgen import canvas
+
+        reader = PdfReader(pdf_file)
+        writer = PdfWriter()
+
+        for page in reader.pages:
+            writer.add_page(page)
+
+        # Create signature overlay
+        packet = BytesIO()
+        can = canvas.Canvas(packet)
+
+        can.drawString(100, 100, signature_text)
+        can.save()
+
+        packet.seek(0)
+        overlay = PdfReader(packet)
+
+        writer.pages[0].merge_page(overlay.pages[0])
+
+        output = BytesIO()
+        writer.write(output)
+        output.seek(0)
+
+        st.download_button(
+            "Download Signed PDF",
+            output,
+            file_name="signed.pdf",
+            mime="application/pdf"
+        )
