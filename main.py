@@ -2,7 +2,6 @@ import streamlit as st
 import os
 from docx2pdf import convert
 import fitz
-import cv2
 import numpy as np
 from PIL import Image
 from skimage.metrics import structural_similarity as ssim
