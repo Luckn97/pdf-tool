@@ -6,3 +6,4 @@ scikit-image
 streamlit-drawable-canvas
 reportlab
 PyPDF2
+pymupdf
