@@ -1,8 +1,7 @@
 import streamlit as st
-from PIL import Image
 import fitz  # PyMuPDF
+from PIL import Image
 import io
-import base64
 import numpy as np
 
 from streamlit_drawable_canvas import st_canvas
@@ -10,7 +9,7 @@ from streamlit_drawable_canvas import st_canvas
 st.set_page_config(page_title="PDF Toolkit PRO", layout="wide")
 
 # =========================
-# 🎨 UI HEADER
+# 🚀 HEADER
 # =========================
 st.markdown("""
 # 🚀 PDF Toolkit PRO
@@ -29,119 +28,75 @@ mode = st.radio(
 # =========================
 if mode == "Sign PRO":
 
-    st.markdown("## ✍️ Sign PRO (Drag & Drop • Resize • Multi Page)")
+    st.markdown("## ✍️ Sign PRO (Stable Version)")
 
     uploaded_pdf = st.file_uploader("Upload PDF", type=["pdf"])
 
-    if uploaded_pdf:
-        pdf_bytes = uploaded_pdf.read()
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        total_pages = len(doc)
+    if uploaded_pdf is not None:
 
-        if total_pages == 0:
-            st.error("PDF konnte nicht geladen werden.")
+        try:
+            pdf_bytes = uploaded_pdf.read()
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+
+        except Exception as e:
+            st.error("❌ PDF konnte nicht geladen werden")
             st.stop()
 
-        # =========================
-        # 📄 PAGE SELECT (FIXED)
-        # =========================
-        page_num = st.slider(
+        # 🛑 HARDCHECK → verhindert Slider Crash
+        if doc is None or len(doc) == 0:
+            st.error("❌ PDF hat keine Seiten oder ist beschädigt")
+            st.stop()
+
+        total_pages = len(doc)
+
+        # ✅ SAFE SLIDER (CRASH FIX)
+        page_num = st.number_input(
             "Select Page",
             min_value=1,
             max_value=total_pages,
-            value=1
+            value=1,
+            step=1
         )
 
         page = doc[page_num - 1]
+
         pix = page.get_pixmap()
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
+        st.image(img, caption=f"Page {page_num}", use_container_width=True)
+
         # =========================
-        # ✍️ DRAW SIGNATURE
+        # ✍️ SIGNATURE DRAW
         # =========================
         st.markdown("### ✍️ Draw Signature")
 
-        sig_canvas = st_canvas(
-            fill_color="rgba(0,0,0,0)",
+        sig = st_canvas(
             stroke_width=3,
-            stroke_color="#FFFFFF",  # 👈 WHITE for dark mode
+            stroke_color="#FFFFFF",
             background_color="#000000",
             height=150,
             width=400,
             drawing_mode="freedraw",
-            key="signature"
+            key="sig"
         )
 
         # =========================
-        # 🖼️ PDF + OVERLAY UI
-        # =========================
-        st.markdown("### 🎯 Place Signature")
-
-        img_bytes = io.BytesIO()
-        img.save(img_bytes, format="PNG")
-        img_base64 = base64.b64encode(img_bytes.getvalue()).decode()
-
-        html = f"""
-        <div style="position:relative; display:inline-block;">
-            <img src="data:image/png;base64,{img_base64}" width="700"/>
-
-            <div id="sig"
-                style="
-                position:absolute;
-                top:100px;
-                left:100px;
-                width:150px;
-                height:50px;
-                border:2px dashed red;
-                cursor:move;
-                resize:both;
-                overflow:hidden;
-                background:rgba(255,255,255,0.05);
-                ">
-            </div>
-        </div>
-
-        <script>
-        const el = document.getElementById("sig");
-
-        let offsetX, offsetY, isDown = false;
-
-        el.addEventListener('mousedown', (e) => {{
-            isDown = true;
-            offsetX = e.offsetX;
-            offsetY = e.offsetY;
-        }});
-
-        document.addEventListener('mouseup', () => isDown = false);
-
-        document.addEventListener('mousemove', (e) => {{
-            if (!isDown) return;
-            el.style.left = (e.pageX - offsetX) + 'px';
-            el.style.top = (e.pageY - offsetY) + 'px';
-        }});
-        </script>
-        """
-
-        st.components.v1.html(html, height=800)
-
-        # =========================
-        # 📄 EXPORT PDF
+        # 📄 SIGN EXPORT
         # =========================
         if st.button("📄 Generate Signed PDF"):
 
-            if sig_canvas.image_data is None:
-                st.warning("Bitte zuerst unterschreiben")
+            if sig.image_data is None:
+                st.warning("Bitte unterschreiben")
                 st.stop()
 
+            # Convert signature
             sig_img = Image.fromarray(
-                (sig_canvas.image_data[:, :, :3]).astype(np.uint8)
-            )
+                (sig.image_data[:, :, :3]).astype(np.uint8)
+            ).convert("RGBA")
 
-            # Transparent machen
-            sig_img = sig_img.convert("RGBA")
             datas = sig_img.getdata()
-
             new_data = []
+
             for item in datas:
                 if item[0] < 50 and item[1] < 50 and item[2] < 50:
                     new_data.append((0, 0, 0, 0))
@@ -150,17 +105,19 @@ if mode == "Sign PRO":
 
             sig_img.putdata(new_data)
 
-            sig_buffer = io.BytesIO()
-            sig_img.save(sig_buffer, format="PNG")
+            buffer = io.BytesIO()
+            sig_img.save(buffer, format="PNG")
 
-            # Default Position (center)
-            rect = fitz.Rect(100, 100, 250, 150)
+            # 👉 FIXED POSITION (center)
+            rect = fitz.Rect(100, 100, 300, 180)
 
-            page.insert_image(rect, stream=sig_buffer.getvalue())
+            page.insert_image(rect, stream=buffer.getvalue())
 
             output = io.BytesIO()
             doc.save(output)
             output.seek(0)
+
+            st.success("✅ PDF erstellt!")
 
             st.download_button(
                 "⬇️ Download Signed PDF",
@@ -173,19 +130,19 @@ if mode == "Sign PRO":
 # 📊 COMPARE
 # =========================
 elif mode == "Compare":
-    st.markdown("## 📊 PDF Compare (Basic)")
-    st.info("Coming next step (diff highlight)")
+    st.markdown("## 📊 Compare")
+    st.info("Coming soon")
 
 # =========================
 # 🤖 AI COMPARE
 # =========================
 elif mode == "AI Compare":
     st.markdown("## 🤖 AI Compare")
-    st.info("Next step: semantic diff + summary")
+    st.info("Next step")
 
 # =========================
 # 🔄 CONVERT
 # =========================
 elif mode == "Convert":
     st.markdown("## 🔄 Convert")
-    st.info("PDF ↔ Image/Text coming next")
+    st.info("Coming soon")
