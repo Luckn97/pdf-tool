@@ -1,9 +1,11 @@
+# PDF Toolkit PRO (No OpenCV Version - Cloud Ready)
+
 import streamlit as st
 import os
 from docx2pdf import convert
 import fitz
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 from skimage.metrics import structural_similarity as ssim
 from streamlit_drawable_canvas import st_canvas
 
@@ -19,43 +21,53 @@ st.caption("Compare, convert & sign PDFs instantly")
 
 menu = st.tabs(["📊 Compare", "📄 Convert", "✍️ Sign"])
 
+# -----------------------------
+# PDF → Images
+# -----------------------------
+
 def pdf_to_images(pdf_path):
     doc = fitz.open(pdf_path)
     images = []
     for page in doc:
         pix = page.get_pixmap()
-        path = os.path.join(OUTPUT_DIR, f"page_{page.number}.png")
-        pix.save(path)
-        images.append(path)
+        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        images.append(img)
     return images
 
-def detect(img1_path, img2_path):
-    img1 = cv2.imread(img1_path)
-    img2 = cv2.imread(img2_path)
+# -----------------------------
+# DIFFERENCE DETECTION (NO CV2)
+# -----------------------------
 
-    h = min(img1.shape[0], img2.shape[0])
-    w = min(img1.shape[1], img2.shape[1])
-    img1 = cv2.resize(img1, (w, h))
-    img2 = cv2.resize(img2, (w, h))
+def detect_diff(img1, img2):
+    img1 = img1.resize(img2.size)
 
-    gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
-    gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+    gray1 = np.array(img1.convert("L"))
+    gray2 = np.array(img2.convert("L"))
 
     score, diff = ssim(gray1, gray2, full=True)
-    diff = (diff * 255).astype("uint8")
 
-    heatmap = cv2.applyColorMap(255 - diff, cv2.COLORMAP_JET)
+    diff = (1 - diff) * 255
+    diff = diff.astype("uint8")
 
-    _, thresh = cv2.threshold(255 - diff, 50, 255, cv2.THRESH_BINARY)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    heatmap = Image.fromarray(diff)
+
+    # Create bounding boxes manually
+    threshold = diff > 50
+    coords = np.column_stack(np.where(threshold))
 
     output = img2.copy()
-    for cnt in contours:
-        x, y, w, h = cv2.boundingRect(cnt)
-        if w * h > 1500:
-            cv2.rectangle(output, (x, y), (x + w, y + h), (0, 0, 255), 2)
+    draw = ImageDraw.Draw(output)
+
+    if len(coords) > 0:
+        y0, x0 = coords.min(axis=0)
+        y1, x1 = coords.max(axis=0)
+        draw.rectangle([x0, y0, x1, y1], outline="red", width=3)
 
     return output, heatmap, score
+
+# -----------------------------
+# COMPARE
+# -----------------------------
 
 with menu[0]:
     file1 = st.file_uploader("Upload PDF A", type=["pdf"])
@@ -75,14 +87,20 @@ with menu[0]:
             imgs2 = pdf_to_images(path2)
 
             for i in range(min(len(imgs1), len(imgs2))):
-                res, heat, score = detect(imgs1[i], imgs2[i])
+                res, heat, score = detect_diff(imgs1[i], imgs2[i])
+
                 st.write(f"Page {i+1} Similarity: {score:.3f}")
                 c1, c2 = st.columns(2)
                 c1.image(res)
                 c2.image(heat)
 
+# -----------------------------
+# CONVERT
+# -----------------------------
+
 with menu[1]:
     file = st.file_uploader("Upload DOCX", type=["docx"])
+
     if file:
         in_path = os.path.join(UPLOAD_DIR, file.name)
         out_path = os.path.join(OUTPUT_DIR, "converted.pdf")
@@ -94,6 +112,10 @@ with menu[1]:
             convert(in_path, out_path)
             with open(out_path, "rb") as f:
                 st.download_button("Download PDF", f)
+
+# -----------------------------
+# SIGN
+# -----------------------------
 
 with menu[2]:
     pdf_file = st.file_uploader("Upload PDF", type=["pdf"])
