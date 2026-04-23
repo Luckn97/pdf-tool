@@ -69,10 +69,10 @@ with menu[0]:
                 st.image(Image.fromarray(diff))
 
 # -----------------------------
-# SIGN (UX PRO)
+# SIGN (FIXED VERSION)
 # -----------------------------
 with menu[1]:
-    st.subheader("✍️ Sign PDF (Pro UX Mode)")
+    st.subheader("✍️ Sign PDF")
 
     pdf_file = st.file_uploader("Upload PDF", type=["pdf"])
 
@@ -94,7 +94,7 @@ with menu[1]:
         )
 
         # -----------------------------
-        # SIGNATURE DRAW
+        # SIGNATURE
         # -----------------------------
         st.markdown("### ✍️ Draw Signature")
 
@@ -112,7 +112,7 @@ with menu[1]:
 
             sig_img = Image.fromarray(canvas_sig.image_data.astype("uint8")).convert("RGBA")
 
-            # 👉 Clean transparent background
+            # 👉 Clean signature
             new_data = []
             for r, g, b, a in sig_img.getdata():
                 if r < 60 and g < 60 and b < 60:
@@ -121,13 +121,8 @@ with menu[1]:
                     new_data.append((0, 0, 0, 255))
             sig_img.putdata(new_data)
 
-            # 👉 convert to base64 for canvas
-            buf = BytesIO()
-            sig_img.save(buf, format="PNG")
-            sig_base64 = base64.b64encode(buf.getvalue()).decode()
-
             # -----------------------------
-            # PDF PREVIEW + SIGN
+            # PREVIEW PAGE
             # -----------------------------
             st.markdown("### 🎯 Place Signature")
 
@@ -135,33 +130,26 @@ with menu[1]:
             pix = ref_page.get_pixmap()
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-            MAX_WIDTH = 800
+            MAX_WIDTH = 700
             scale = 1
             if img.width > MAX_WIDTH:
                 scale = MAX_WIDTH / img.width
                 img = img.resize((int(img.width * scale), int(img.height * scale)))
 
-            # 👉 UX Verbesserung
-            st.info("👉 Drag, resize & position your signature (like DocuSign)")
+            # 👉 Wichtig: Bild anzeigen (separat!)
+            st.image(img)
 
+            st.info("👉 Drag the box → position your signature")
+
+            # 👉 Canvas OHNE background_image (FIX)
             canvas = st_canvas(
                 height=img.height,
                 width=img.width,
-                background_image=img,
-                drawing_mode="transform",
-                initial_drawing={
-                    "version": "4.4.0",
-                    "objects": [
-                        {
-                            "type": "image",
-                            "left": img.width * 0.3,
-                            "top": img.height * 0.75,
-                            "scaleX": 0.5,
-                            "scaleY": 0.5,
-                            "src": f"data:image/png;base64,{sig_base64}",
-                        }
-                    ],
-                },
+                drawing_mode="rect",
+                fill_color="rgba(255,255,255,0.2)",
+                stroke_width=2,
+                stroke_color="red",
+                background_color="rgba(0,0,0,0)",
                 key="pdf"
             )
 
@@ -170,16 +158,19 @@ with menu[1]:
             # -----------------------------
             if st.button("🚀 Apply Signature"):
 
-                if canvas.json_data:
-                    obj = canvas.json_data["objects"][0]
+                if canvas.json_data and len(canvas.json_data["objects"]) > 0:
 
-                    x = obj["left"] / scale
-                    y = obj["top"] / scale
-                    w = obj["scaleX"] * sig_img.width / scale
-                    h = obj["scaleY"] * sig_img.height / scale
+                    rect_obj = canvas.json_data["objects"][0]
+
+                    x = rect_obj["left"] / scale
+                    y = rect_obj["top"] / scale
+                    w = rect_obj["width"] / scale
+                    h = rect_obj["height"] / scale
+
+                    sig_resized = sig_img.resize((int(w), int(h)))
 
                     sig_path = os.path.join(OUTPUT_DIR, "sig.png")
-                    sig_img.save(sig_path)
+                    sig_resized.save(sig_path)
 
                     doc = fitz.open(pdf_path)
                     previews = []
@@ -187,16 +178,7 @@ with menu[1]:
                     for page_index in pages_to_sign:
                         page = doc[page_index - 1]
 
-                        scale_x = page.rect.width / img.width
-                        scale_y = page.rect.height / img.height
-
-                        rect = fitz.Rect(
-                            x * scale_x,
-                            y * scale_y,
-                            (x + w) * scale_x,
-                            (y + h) * scale_y
-                        )
-
+                        rect = fitz.Rect(x, y, x + w, y + h)
                         page.insert_image(rect, filename=sig_path)
 
                         pix = page.get_pixmap()
@@ -205,13 +187,13 @@ with menu[1]:
                     out_path = os.path.join(OUTPUT_DIR, "signed.pdf")
                     doc.save(out_path)
 
-                    st.success("✅ Done")
+                    st.success("✅ Signature applied")
 
-                    st.markdown("## 👀 Live Preview")
+                    st.markdown("## 👀 Preview")
 
                     for p, im in previews:
                         st.markdown(f"Page {p}")
-                        st.image(im, use_column_width=True)
+                        st.image(im)
 
                     with open(out_path, "rb") as f:
                         st.download_button("⬇️ Download PDF", f)
