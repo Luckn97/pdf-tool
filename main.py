@@ -1,184 +1,157 @@
 import streamlit as st
-import pdfplumber
-import difflib
-from io import BytesIO
-from PIL import Image
+import fitz  # PyMuPDF
 import numpy as np
+from PIL import Image
+import io
 from streamlit_drawable_canvas import st_canvas
 
-# PDF SIGN
-from PyPDF2 import PdfReader, PdfWriter
-from reportlab.pdfgen import canvas
+st.set_page_config(layout="wide")
 
-st.set_page_config(page_title="PDF Toolkit PRO", layout="wide")
-
-# ======================
-# HERO UI
-# ======================
+# -------------------------------
+# UI HEADER
+# -------------------------------
 st.markdown("""
-<style>
-.big-title {
-    font-size: 42px;
-    font-weight: 700;
-}
-.subtitle {
-    color: #aaa;
-    margin-bottom: 20px;
-}
-</style>
-""", unsafe_allow_html=True)
+# 🚀 PDF Toolkit PRO
+### ✍️ Sign PRO (Drag & Drop + Resize + Multi Page)
+""")
 
-st.markdown('<div class="big-title">🚀 PDF Toolkit PRO</div>', unsafe_allow_html=True)
-st.markdown('<div class="subtitle">Compare • Convert • Sign PDFs instantly</div>', unsafe_allow_html=True)
+# -------------------------------
+# UPLOAD PDF
+# -------------------------------
+pdf_file = st.file_uploader("Upload PDF", type=["pdf"])
 
-# ======================
-# NAVIGATION
-# ======================
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Compare", "🧠 AI Compare", "🔄 Convert", "✍️ Sign"])
+if pdf_file:
+    pdf_bytes = pdf_file.read()
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    total_pages = len(doc)
 
-# ======================
-# HELPER
-# ======================
-def extract_text(pdf_file):
-    text = ""
-    with pdfplumber.open(pdf_file) as pdf:
-        for page in pdf.pages:
-            text += page.extract_text() or ""
-    return text
+    # -------------------------------
+    # PAGE SELECTION
+    # -------------------------------
+    page_num = st.slider("Select Page", 1, total_pages, 1)
+    page = doc[page_num - 1]
 
-# ======================
-# COMPARE
-# ======================
-with tab1:
-    st.subheader("Compare PDFs")
+    pix = page.get_pixmap()
+    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-    f1 = st.file_uploader("PDF 1", type="pdf", key="c1")
-    f2 = st.file_uploader("PDF 2", type="pdf", key="c2")
+    # -------------------------------
+    # DRAW SIGNATURE
+    # -------------------------------
+    st.subheader("✍️ Draw Signature")
 
-    if f1 and f2:
-        t1 = extract_text(f1)
-        t2 = extract_text(f2)
-
-        diff = list(difflib.ndiff(t1.splitlines(), t2.splitlines()))
-
-        for line in diff:
-            if line.startswith("- "):
-                st.error(line)
-            elif line.startswith("+ "):
-                st.success(line)
-
-# ======================
-# AI COMPARE
-# ======================
-with tab2:
-    st.subheader("AI Compare (Smart Diff)")
-
-    f1 = st.file_uploader("Original", type="pdf", key="a1")
-    f2 = st.file_uploader("Modified", type="pdf", key="a2")
-
-    if f1 and f2:
-        t1 = extract_text(f1)
-        t2 = extract_text(f2)
-
-        changes = list(difflib.unified_diff(t1.split(), t2.split()))
-
-        for line in changes:
-            if line.startswith("-"):
-                st.error(f"Removed: {line}")
-            elif line.startswith("+"):
-                st.success(f"Added: {line}")
-
-# ======================
-# CONVERT
-# ======================
-with tab3:
-    st.subheader("Convert TXT → PDF")
-
-    txt = st.file_uploader("Upload TXT", type="txt")
-
-    if txt:
-        content = txt.read().decode("utf-8")
-
-        buffer = BytesIO()
-        c = canvas.Canvas(buffer)
-
-        y = 800
-        for line in content.split("\n"):
-            c.drawString(50, y, line)
-            y -= 15
-
-        c.save()
-        buffer.seek(0)
-
-        st.download_button("Download PDF", buffer, "converted.pdf")
-
-# ======================
-# SIGN (REAL DRAW)
-# ======================
-with tab4:
-    st.subheader("Draw & Sign PDF")
-
-    pdf_file = st.file_uploader("Upload PDF", type="pdf")
-
-    st.markdown("### ✍️ Draw Signature")
-
-    canvas_result = st_canvas(
-        fill_color="rgba(0,0,0,0)",
-        stroke_width=3,
-        stroke_color="white",  # 👈 FIX: sichtbar im Darkmode
-        background_color="#111",
+    sig_canvas = st_canvas(
+        stroke_width=4,
+        stroke_color="#FFFFFF",
+        background_color="#000000",
         height=200,
         width=400,
         drawing_mode="freedraw",
-        key="canvas"
+        key="sig",
     )
 
-    if pdf_file and canvas_result.image_data is not None:
+    signature = None
 
-        img = canvas_result.image_data.astype("uint8")
+    if sig_canvas.image_data is not None:
+        sig = sig_canvas.image_data
 
-        # Transparent machen
-        img_pil = Image.fromarray(img).convert("RGBA")
-        datas = img_pil.getdata()
+        # Convert to transparent PNG
+        sig = (sig[:, :, :3]).astype(np.uint8)
+        gray = np.mean(sig, axis=2)
 
-        newData = []
-        for item in datas:
-            if item[0] < 50 and item[1] < 50 and item[2] < 50:
-                newData.append((255, 255, 255, 0))
-            else:
-                newData.append((0, 0, 0, 255))
+        mask = gray > 50
+        sig[mask] = [0, 0, 0]
 
-        img_pil.putdata(newData)
+        rgba = np.zeros((sig.shape[0], sig.shape[1], 4), dtype=np.uint8)
+        rgba[:, :, :3] = sig
+        rgba[:, :, 3] = np.where(mask, 0, 255)
 
-        # Save temp image
-        sig_buffer = BytesIO()
-        img_pil.save(sig_buffer, format="PNG")
-        sig_buffer.seek(0)
+        signature = Image.fromarray(rgba)
 
-        st.image(img_pil, caption="Signature Preview")
+    # -------------------------------
+    # DRAG + RESIZE UI
+    # -------------------------------
+    st.subheader("🎯 Place Signature (Drag & Resize)")
 
-        if st.button("Sign PDF"):
+    canvas = st_canvas(
+        background_image=img,
+        update_streamlit=True,
+        height=img.height,
+        width=img.width,
+        drawing_mode="rect",
+        key="placement",
+    )
 
-            reader = PdfReader(pdf_file)
-            writer = PdfWriter()
+    rect = None
 
-            for page in reader.pages:
-                writer.add_page(page)
+    if canvas.json_data is not None:
+        objects = canvas.json_data["objects"]
+        if len(objects) > 0:
+            rect = objects[-1]
 
-            # Overlay PDF
-            packet = BytesIO()
-            can = canvas.Canvas(packet)
+    # -------------------------------
+    # LIVE PREVIEW
+    # -------------------------------
+    st.subheader("👀 Live Preview")
 
-            can.drawImage(Image.open(sig_buffer), 100, 100, width=150, height=50)
-            can.save()
+    preview_img = img.copy()
 
-            packet.seek(0)
-            overlay = PdfReader(packet)
+    if rect and signature:
+        x = int(rect["left"])
+        y = int(rect["top"])
+        w = int(rect["width"])
+        h = int(rect["height"])
 
-            writer.pages[0].merge_page(overlay.pages[0])
+        sig_resized = signature.resize((w, h))
 
-            output = BytesIO()
-            writer.write(output)
-            output.seek(0)
+        preview_img.paste(sig_resized, (x, y), sig_resized)
 
-            st.download_button("Download Signed PDF", output, "signed.pdf")
+    st.image(preview_img, use_column_width=True)
+
+    # -------------------------------
+    # MULTI PAGE SELECT
+    # -------------------------------
+    st.subheader("📄 Apply to Pages")
+
+    apply_all = st.checkbox("Apply to ALL pages")
+    pages_selected = st.multiselect(
+        "Or select pages",
+        list(range(1, total_pages + 1)),
+        default=[page_num],
+    )
+
+    # -------------------------------
+    # GENERATE PDF
+    # -------------------------------
+    if st.button("🚀 Generate Signed PDF"):
+
+        if not signature or not rect:
+            st.error("Draw signature AND select placement box")
+        else:
+            for i in range(total_pages):
+                if apply_all or (i + 1 in pages_selected):
+
+                    page = doc[i]
+
+                    x = rect["left"]
+                    y = rect["top"]
+                    w = rect["width"]
+                    h = rect["height"]
+
+                    rect_pdf = fitz.Rect(x, y, x + w, y + h)
+
+                    img_bytes = io.BytesIO()
+                    signature.save(img_bytes, format="PNG")
+
+                    page.insert_image(rect_pdf, stream=img_bytes.getvalue())
+
+            output = io.BytesIO()
+            doc.save(output)
+
+            st.success("✅ PDF Signed!")
+
+            st.download_button(
+                "⬇️ Download Signed PDF",
+                data=output.getvalue(),
+                file_name="signed.pdf",
+                mime="application/pdf",
+            )
