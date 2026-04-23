@@ -1,35 +1,11 @@
-import streamlit as st
-import os
-import fitz  # PyMuPDF
-from PIL import Image
-from streamlit_drawable_canvas import st_canvas
-import pdfplumber
-from difflib import ndiff
-
-# -----------------------------
-# CONFIG
-# -----------------------------
-st.set_page_config(page_title="PDF Toolkit PRO", layout="wide")
-
-UPLOAD_DIR = "uploads"
-OUTPUT_DIR = "outputs"
-
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-# -----------------------------
-# MENU
-# -----------------------------
-menu = st.tabs(["📊 Compare", "✍️ Sign", "📄 Convert"])
-
 # =========================================================
-# 📊 COMPARE
+# 🤖 AI COMPARE (SMART)
 # =========================================================
 with menu[0]:
-    st.header("📊 PDF Compare")
+    st.header("🤖 AI PDF Compare")
 
-    file1 = st.file_uploader("Upload first PDF", type=["pdf"], key="c1")
-    file2 = st.file_uploader("Upload second PDF", type=["pdf"], key="c2")
+    file1 = st.file_uploader("PDF 1", type=["pdf"], key="ai1")
+    file2 = st.file_uploader("PDF 2", type=["pdf"], key="ai2")
 
     if file1 and file2:
 
@@ -42,163 +18,74 @@ with menu[0]:
         with open(path2, "wb") as f:
             f.write(file2.read())
 
-        if st.button("Compare PDFs"):
+        if st.button("🚀 Run AI Compare"):
 
-            text1 = ""
-            text2 = ""
+            def extract_text(path):
+                text = ""
+                with pdfplumber.open(path) as pdf:
+                    for p in pdf.pages:
+                        text += p.extract_text() or ""
+                return text
 
-            with pdfplumber.open(path1) as pdf:
-                for p in pdf.pages:
-                    text1 += p.extract_text() or ""
+            text1 = extract_text(path1)
+            text2 = extract_text(path2)
 
-            with pdfplumber.open(path2) as pdf:
-                for p in pdf.pages:
-                    text2 += p.extract_text() or ""
+            # SPLIT INTO SENTENCES
+            import re
+            s1 = re.split(r'(?<=[.!?]) +', text1)
+            s2 = re.split(r'(?<=[.!?]) +', text2)
 
-            diff = list(ndiff(text1.split(), text2.split()))
+            from difflib import SequenceMatcher
 
-            added = [d[2:] for d in diff if d.startswith("+")]
-            removed = [d[2:] for d in diff if d.startswith("-")]
+            changes = []
 
-            st.subheader("🟢 Added")
-            st.write(added[:100])
+            for line1 in s1:
+                best_ratio = 0
+                best_match = ""
 
-            st.subheader("🔴 Removed")
-            st.write(removed[:100])
+                for line2 in s2:
+                    ratio = SequenceMatcher(None, line1, line2).ratio()
+                    if ratio > best_ratio:
+                        best_ratio = ratio
+                        best_match = line2
 
-# =========================================================
-# ✍️ SIGN (DRAG UI)
-# =========================================================
-with menu[1]:
-    st.header("✍️ Sign PDF (Drag & Resize)")
-
-    pdf_file = st.file_uploader("Upload PDF", type=["pdf"])
-
-    if pdf_file:
-
-        pdf_path = os.path.join(UPLOAD_DIR, pdf_file.name)
-        with open(pdf_path, "wb") as f:
-            f.write(pdf_file.read())
-
-        doc = fitz.open(pdf_path)
-        total_pages = len(doc)
-
-        st.success(f"{total_pages} pages detected")
-
-        # -----------------------------
-        # DRAW SIGNATURE
-        # -----------------------------
-        st.subheader("Draw Signature")
-
-        sig_canvas = st_canvas(
-            height=200,
-            width=400,
-            drawing_mode="freedraw",
-            stroke_color="white",
-            background_color="#0e1117",
-            stroke_width=4,
-            key="sig"
-        )
-
-        if sig_canvas.image_data is not None:
-
-            sig_img = Image.fromarray(sig_canvas.image_data.astype("uint8")).convert("RGBA")
-
-            # 👉 transparent + black
-            new_data = []
-            for r, g, b, a in sig_img.getdata():
-                if r < 50 and g < 50 and b < 50:
-                    new_data.append((255, 255, 255, 0))
+                if best_ratio < 0.75:
+                    changes.append({
+                        "type": "removed",
+                        "text": line1
+                    })
                 else:
-                    new_data.append((0, 0, 0, 255))
-            sig_img.putdata(new_data)
+                    if line1 != best_match:
+                        changes.append({
+                            "type": "modified",
+                            "old": line1,
+                            "new": best_match
+                        })
+
+            # FIND ADDED
+            for line2 in s2:
+                if not any(line2 in c.get("new", "") for c in changes):
+                    if line2 not in s1:
+                        changes.append({
+                            "type": "added",
+                            "text": line2
+                        })
 
             # -----------------------------
-            # PAGE
+            # OUTPUT
             # -----------------------------
-            page_num = st.slider("Page", 1, total_pages, 1)
-            page = doc[page_num - 1]
+            st.subheader("🧠 Smart Differences")
 
-            pix = page.get_pixmap()
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            for c in changes[:50]:
 
-            MAX_WIDTH = 700
-            scale = 1
-            if img.width > MAX_WIDTH:
-                scale = MAX_WIDTH / img.width
-                img = img.resize((int(img.width * scale), int(img.height * scale)))
+                if c["type"] == "added":
+                    st.success(f"➕ Added: {c['text']}")
 
-            st.subheader("Drag box on PDF")
+                elif c["type"] == "removed":
+                    st.error(f"➖ Removed: {c['text']}")
 
-            canvas = st_canvas(
-                background_image=img,
-                height=img.height,
-                width=img.width,
-                drawing_mode="rect",
-                stroke_color="#00ff88",
-                fill_color="rgba(0,255,136,0.2)",
-                stroke_width=2,
-                key="pdf"
-            )
-
-            if canvas.json_data and len(canvas.json_data["objects"]) > 0:
-
-                obj = canvas.json_data["objects"][-1]
-
-                x = obj["left"]
-                y = obj["top"]
-                w = obj["width"] * obj["scaleX"]
-                h = obj["height"] * obj["scaleY"]
-
-                preview = img.copy()
-                sig_resized = sig_img.resize((int(w), int(h)))
-                preview.paste(sig_resized, (int(x), int(y)), sig_resized)
-
-                st.subheader("Preview")
-                st.image(preview)
-
-                if st.button("Apply Signature"):
-
-                    sig_path = os.path.join(OUTPUT_DIR, "sig.png")
-                    sig_resized.save(sig_path)
-
-                    doc = fitz.open(pdf_path)
-                    page = doc[page_num - 1]
-
-                    rect = fitz.Rect(
-                        x / scale,
-                        y / scale,
-                        (x + w) / scale,
-                        (y + h) / scale
-                    )
-
-                    page.insert_image(rect, filename=sig_path)
-
-                    out_path = os.path.join(OUTPUT_DIR, "signed.pdf")
-                    doc.save(out_path)
-
-                    st.success("Signed!")
-
-                    with open(out_path, "rb") as f:
-                        st.download_button("Download PDF", f)
-
-# =========================================================
-# 📄 CONVERT
-# =========================================================
-with menu[2]:
-    st.header("📄 Convert")
-
-    uploaded = st.file_uploader("Upload file", type=["txt"])
-
-    if uploaded:
-        text = uploaded.read().decode("utf-8")
-
-        pdf = fitz.open()
-        page = pdf.new_page()
-        page.insert_text((72, 72), text)
-
-        out_path = os.path.join(OUTPUT_DIR, "converted.pdf")
-        pdf.save(out_path)
-
-        with open(out_path, "rb") as f:
-            st.download_button("Download PDF", f)
+                elif c["type"] == "modified":
+                    st.warning("✏️ Modified:")
+                    st.write("OLD:", c["old"])
+                    st.write("NEW:", c["new"])
+                    st.markdown("---")
