@@ -6,6 +6,7 @@ from PIL import Image, ImageDraw
 from skimage.metrics import structural_similarity as ssim
 from streamlit_drawable_canvas import st_canvas
 import difflib
+import io
 
 UPLOAD_DIR = "uploads"
 OUTPUT_DIR = "outputs"
@@ -172,7 +173,6 @@ with menu[0]:
                 else:
                     st.image(heat)
 
-                # TEXT DIFF
                 st.markdown("### 🧠 Text Differences")
 
                 added, removed = compare_texts(texts1[i], texts2[i])
@@ -188,29 +188,8 @@ with menu[0]:
                     html = highlight_diff(texts1[i], texts2[i])
                     st.components.v1.html(html, height=400)
 
-                # DOWNLOAD IMAGE
-                img_path = os.path.join(OUTPUT_DIR, f"result_{i}.png")
-                res.save(img_path)
-
-                with open(img_path, "rb") as f:
-                    st.download_button(
-                        "⬇️ Download Image",
-                        f,
-                        file_name=f"comparison_{i+1}.png"
-                    )
-
-        if st.button("📄 Export Marked PDF"):
-            with st.spinner("Generating PDF..."):
-                imgs1 = pdf_to_images(path1)
-                imgs2 = pdf_to_images(path2)
-
-                pdf_out = create_marked_pdf(path2, imgs1, imgs2, sensitivity)
-
-                with open(pdf_out, "rb") as f:
-                    st.download_button("⬇️ Download Marked PDF", f)
-
 # -----------------------------
-# SIGN TAB (DRAG & DROP STYLE)
+# SIGN TAB (FIXED)
 # -----------------------------
 with menu[1]:
     st.subheader("✍️ Sign PDF (Click to place signature)")
@@ -228,22 +207,42 @@ with menu[1]:
         pix = page.get_pixmap()
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
+        # Resize for stability
+        MAX_WIDTH = 800
+        if img.width > MAX_WIDTH:
+            ratio = MAX_WIDTH / img.width
+            img = img.resize((int(img.width * ratio), int(img.height * ratio)))
+
+        # Convert image for canvas
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        canvas_bg = Image.open(buf)
+
         st.markdown("### 1. Draw Signature")
-        canvas_sig = st_canvas(height=200, width=400, drawing_mode="freedraw")
+
+        canvas_sig = st_canvas(
+            height=200,
+            width=400,
+            drawing_mode="freedraw",
+            stroke_color="white",
+            background_color="#0e1117",
+            stroke_width=3
+        )
 
         st.markdown("### 2. Click on PDF where signature should be placed")
 
         canvas_pdf = st_canvas(
-            background_image=img,
-            height=img.height,
-            width=img.width,
+            background_image=canvas_bg,
+            height=canvas_bg.height,
+            width=canvas_bg.width,
             drawing_mode="point",
             key="pdf_click"
         )
 
         if canvas_sig.image_data is not None and canvas_pdf.json_data is not None:
 
-            objects = canvas_pdf.json_data["objects"]
+            objects = canvas_pdf.json_data.get("objects", [])
 
             if len(objects) > 0:
                 point = objects[-1]
