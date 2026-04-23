@@ -1,95 +1,94 @@
 import streamlit as st
-from pdf2image import convert_from_bytes
+import fitz  # PyMuPDF
 from PIL import Image
 import io
-from reportlab.pdfgen import canvas
-from PyPDF2 import PdfReader, PdfWriter
 
 st.set_page_config(layout="wide")
 
-st.title("✍️ Sign PRO – Click Placement (Stable)")
+st.title("✍️ Sign PRO – Stable Version (No pdf2image)")
 
-# Upload
+# Upload PDF
 uploaded_file = st.file_uploader("Upload PDF", type="pdf")
 
 if uploaded_file:
 
     pdf_bytes = uploaded_file.read()
-    images = convert_from_bytes(pdf_bytes)
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
 
-    total_pages = len(images)
+    total_pages = len(doc)
 
+    # Stabiler Page Selector (kein Slider Bug mehr)
     page_num = st.number_input(
         "Select Page",
         min_value=1,
         max_value=total_pages,
-        value=1
+        value=1,
+        step=1
     )
 
-    img = images[page_num - 1]
+    page = doc[page_num - 1]
 
-    st.subheader("📄 Click on PDF to place signature")
+    # Render Page als Image
+    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-    # 👉 WICHTIG: Bild NORMAL anzeigen (kein canvas background!)
+    st.subheader("📄 PDF Preview")
+
     st.image(img, use_container_width=True)
 
-    # Klick Koordinaten simulieren (Workaround statt st_canvas)
-    x = st.slider("X Position", 0, img.width, img.width // 2)
-    y = st.slider("Y Position", 0, img.height, img.height // 2)
+    # Position auswählen
+    st.subheader("📍 Position")
 
-    # Signature Upload (besser als zeichnen für Stabilität)
-    sig_file = st.file_uploader("Upload Signature (PNG empfohlen)", type=["png"])
+    col1, col2 = st.columns(2)
+
+    with col1:
+        x = st.slider("X Position", 0, img.width, img.width // 2)
+
+    with col2:
+        y = st.slider("Y Position", 0, img.height, img.height // 2)
+
+    # Signature Upload
+    st.subheader("✍️ Upload Signature")
+
+    sig_file = st.file_uploader("Upload Signature (PNG)", type=["png"])
 
     if sig_file:
+
         sig = Image.open(sig_file).convert("RGBA")
 
-        st.subheader("🔍 Preview")
+        # Preview
+        st.subheader("🔍 Live Preview")
 
         preview = img.copy()
         preview.paste(sig, (x, y), sig)
 
         st.image(preview, use_container_width=True)
 
+        # Sign PDF
         if st.button("💾 Sign PDF"):
 
-            packet = io.BytesIO()
-            can = canvas.Canvas(packet)
+            # Signature vorbereiten
+            sig_bytes = sig_file.read()
+            sig_rect = fitz.Rect(x, y, x + 150, y + 50)
 
-            # Y invertieren (PDF Koordinaten!)
-            pdf_y = img.height - y - 50
-
-            can.drawImage(
-                sig_file,
+            # Y Koordinate fixen (PyMuPDF hat andere Origin)
+            page_height = page.rect.height
+            corrected_rect = fitz.Rect(
                 x,
-                pdf_y,
-                width=150,
-                height=50,
-                mask='auto'
+                page_height - y - 50,
+                x + 150,
+                page_height - y
             )
 
-            can.save()
+            page.insert_image(corrected_rect, stream=sig_bytes)
 
-            packet.seek(0)
+            output = io.BytesIO()
+            doc.save(output)
 
-            new_pdf = PdfReader(packet)
-            existing_pdf = PdfReader(io.BytesIO(pdf_bytes))
-            output = PdfWriter()
-
-            for i in range(len(existing_pdf.pages)):
-                page = existing_pdf.pages[i]
-
-                if i == page_num - 1:
-                    page.merge_page(new_pdf.pages[0])
-
-                output.add_page(page)
-
-            out_stream = io.BytesIO()
-            output.write(out_stream)
-
-            st.success("✅ Signed successfully!")
+            st.success("✅ PDF signed successfully!")
 
             st.download_button(
                 "Download Signed PDF",
-                data=out_stream.getvalue(),
+                data=output.getvalue(),
                 file_name="signed.pdf"
             )
