@@ -76,62 +76,19 @@ def detect_diff(img1, img2, sensitivity):
     output = img2.copy()
     draw = ImageDraw.Draw(output)
 
-    boxes = []
     for y, x in coords[::300]:
-        box = (x, y, x + 20, y + 20)
-        boxes.append(box)
-        draw.rectangle(box, outline="red", width=1)
+        draw.rectangle((x, y, x + 20, y + 20), outline="red", width=1)
 
-    return output, heatmap, score, boxes
-
-# -----------------------------
-# SLIDER VIEW
-# -----------------------------
-def compare_slider(img1, img2):
-    slider = st.slider("Compare Slider", 0, 100, 50)
-    w = img1.width
-    split = int(w * slider / 100)
-
-    combined = Image.new("RGB", img1.size)
-    combined.paste(img1.crop((0, 0, split, img1.height)), (0, 0))
-    combined.paste(img2.crop((split, 0, w, img2.height)), (split, 0))
-
-    return combined
-
-# -----------------------------
-# MARKED PDF EXPORT
-# -----------------------------
-def create_marked_pdf(pdf_path, imgs1, imgs2, sensitivity):
-    doc = fitz.open(pdf_path)
-
-    for i, page in enumerate(doc):
-        if i >= len(imgs1):
-            continue
-
-        _, _, _, boxes = detect_diff(imgs1[i], imgs2[i], sensitivity)
-
-        for (x0, y0, x1, y1) in boxes:
-            rect = fitz.Rect(x0, y0, x1, y1)
-            page.draw_rect(rect, color=(1, 0, 0), width=1)
-
-    out = os.path.join(OUTPUT_DIR, "marked.pdf")
-    doc.save(out)
-    return out
+    return output, heatmap, score
 
 # -----------------------------
 # COMPARE TAB
 # -----------------------------
 with menu[0]:
-    st.subheader("📊 Visual + Text PDF Comparison")
+    st.subheader("📊 PDF Comparison")
 
-    col1, col2 = st.columns(2)
-
-    with col1:
-        file1 = st.file_uploader("Upload PDF A", type=["pdf"])
-    with col2:
-        file2 = st.file_uploader("Upload PDF B", type=["pdf"])
-
-    sensitivity = st.slider("Sensitivity", 10, 100, 50)
+    file1 = st.file_uploader("Upload PDF A", type=["pdf"])
+    file2 = st.file_uploader("Upload PDF B", type=["pdf"])
 
     if file1 and file2:
         path1 = os.path.join(UPLOAD_DIR, file1.name)
@@ -142,7 +99,7 @@ with menu[0]:
         with open(path2, "wb") as f:
             f.write(file2.read())
 
-        if st.button("🚀 Run Comparison"):
+        if st.button("Compare PDFs"):
             imgs1 = pdf_to_images(path1)
             imgs2 = pdf_to_images(path2)
 
@@ -150,48 +107,22 @@ with menu[0]:
             texts2 = extract_text_per_page(path2)
 
             for i in range(min(len(imgs1), len(imgs2))):
-                st.markdown(f"## Page {i+1}")
+                st.markdown(f"### Page {i+1}")
 
-                res, heat, score, _ = detect_diff(
-                    imgs1[i], imgs2[i], sensitivity
-                )
+                res, heat, score = detect_diff(imgs1[i], imgs2[i], 50)
 
                 st.metric("Similarity", f"{score:.3f}")
-
-                view = st.radio(
-                    "View Mode",
-                    ["Before/After", "Differences", "Heatmap"],
-                    horizontal=True,
-                    key=f"view_{i}"
-                )
-
-                if view == "Before/After":
-                    st.image(compare_slider(imgs1[i], res))
-                elif view == "Differences":
-                    st.image(res)
-                else:
-                    st.image(heat)
-
-                st.markdown("### 🧠 Text Differences")
+                st.image(res)
 
                 added, removed = compare_texts(texts1[i], texts2[i])
-
-                colA, colB = st.columns(2)
-                colA.markdown("#### ➕ Added")
-                colA.write(added[:50])
-
-                colB.markdown("#### ➖ Removed")
-                colB.write(removed[:50])
-
-                with st.expander("🔍 Full Text Diff"):
-                    html = highlight_diff(texts1[i], texts2[i])
-                    st.components.v1.html(html, height=400)
+                st.write("Added:", added[:20])
+                st.write("Removed:", removed[:20])
 
 # -----------------------------
-# SIGN TAB (FINAL FIXED)
+# SIGN TAB (PRO VERSION)
 # -----------------------------
 with menu[1]:
-    st.subheader("✍️ Sign PDF (Click to place signature)")
+    st.subheader("✍️ Sign PDF (Pro Mode)")
 
     pdf_file = st.file_uploader("Upload PDF", type=["pdf"])
 
@@ -201,16 +132,22 @@ with menu[1]:
             f.write(pdf_file.read())
 
         doc = fitz.open(pdf_path)
-        page = doc[0]
+        total_pages = len(doc)
 
+        # 👉 Page selection
+        page_num = st.slider("Select Page", 1, total_pages, 1)
+
+        page = doc[page_num - 1]
         pix = page.get_pixmap()
+
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-        # Resize for stability
+        # Resize for UI
         MAX_WIDTH = 800
+        scale = 1
         if img.width > MAX_WIDTH:
-            ratio = MAX_WIDTH / img.width
-            img = img.resize((int(img.width * ratio), int(img.height * ratio)))
+            scale = MAX_WIDTH / img.width
+            img = img.resize((int(img.width * scale), int(img.height * scale)))
 
         st.markdown("### 1. Draw Signature")
 
@@ -220,48 +157,62 @@ with menu[1]:
             drawing_mode="freedraw",
             stroke_color="white",
             background_color="#0e1117",
-            stroke_width=3
+            stroke_width=4,
+            key="sig"
         )
 
-        st.markdown("### 2. Click on PDF where signature should be placed")
+        if canvas_sig.image_data is not None:
 
-        # 👇 WICHTIGER FIX: KEIN background_image mehr
-        st.image(img, use_column_width=True)
+            sig_img = Image.fromarray(canvas_sig.image_data.astype("uint8"))
+            sig_img = sig_img.convert("RGBA")
 
-        canvas_pdf = st_canvas(
-            height=img.height,
-            width=img.width,
-            drawing_mode="point",
-            stroke_color="red",
-            background_color="rgba(0,0,0,0)",
-            key="pdf_click"
-        )
+            # 👉 CLEAN SIGNATURE (transparent + black)
+            new_data = []
+            for r, g, b, a in sig_img.getdata():
+                if r < 60 and g < 60 and b < 60:
+                    new_data.append((255, 255, 255, 0))
+                else:
+                    new_data.append((0, 0, 0, 255))
+            sig_img.putdata(new_data)
 
-        if canvas_sig.image_data is not None and canvas_pdf.json_data is not None:
+            st.markdown("### 2. Drag & Resize Signature")
 
-            objects = canvas_pdf.json_data.get("objects", [])
+            st.image(img, use_column_width=True)
 
-            if len(objects) > 0:
-                point = objects[-1]
-                x = int(point["left"])
-                y = int(point["top"])
+            canvas = st_canvas(
+                height=img.height,
+                width=img.width,
+                drawing_mode="transform",
+                background_color="rgba(0,0,0,0)",
+                key="pdf"
+            )
 
-                st.success(f"Position: X={x}, Y={y}")
+            st.info("👉 Drag & resize the signature box")
 
-                if st.button("✍️ Apply Signature"):
+            if st.button("Apply Signature"):
 
-                    sig_img = Image.fromarray(canvas_sig.image_data.astype("uint8"))
-                    sig_path = os.path.join(OUTPUT_DIR, "sig.png")
-                    sig_img.save(sig_path)
+                if canvas.json_data is not None:
+                    objects = canvas.json_data.get("objects", [])
 
-                    doc = fitz.open(pdf_path)
+                    if len(objects) > 0:
+                        obj = objects[0]
 
-                    for page in doc:
-                        rect = fitz.Rect(x, y, x + 200, y + 100)
+                        x = obj["left"] / scale
+                        y = obj["top"] / scale
+                        w = obj["scaleX"] * sig_img.width / scale
+                        h = obj["scaleY"] * sig_img.height / scale
+
+                        sig_path = os.path.join(OUTPUT_DIR, "sig.png")
+                        sig_img.save(sig_path)
+
+                        doc = fitz.open(pdf_path)
+
+                        page = doc[page_num - 1]
+                        rect = fitz.Rect(x, y, x + w, y + h)
                         page.insert_image(rect, filename=sig_path)
 
-                    out = os.path.join(OUTPUT_DIR, "signed.pdf")
-                    doc.save(out)
+                        out = os.path.join(OUTPUT_DIR, "signed.pdf")
+                        doc.save(out)
 
-                    with open(out, "rb") as f:
-                        st.download_button("⬇️ Download Signed PDF", f)
+                        with open(out, "rb") as f:
+                            st.download_button("Download Signed PDF", f)
