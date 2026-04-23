@@ -1,8 +1,76 @@
+import streamlit as st
+import os
+import fitz  # PyMuPDF
+from PIL import Image
+from streamlit_drawable_canvas import st_canvas
+import pdfplumber
+from difflib import ndiff
+
 # -----------------------------
-# SIGN (DRAG & RESIZE PRO UI)
+# CONFIG
 # -----------------------------
+st.set_page_config(page_title="PDF Toolkit PRO", layout="wide")
+
+UPLOAD_DIR = "uploads"
+OUTPUT_DIR = "outputs"
+
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# -----------------------------
+# MENU
+# -----------------------------
+menu = st.tabs(["📊 Compare", "✍️ Sign", "📄 Convert"])
+
+# =========================================================
+# 📊 COMPARE
+# =========================================================
+with menu[0]:
+    st.header("📊 PDF Compare")
+
+    file1 = st.file_uploader("Upload first PDF", type=["pdf"], key="c1")
+    file2 = st.file_uploader("Upload second PDF", type=["pdf"], key="c2")
+
+    if file1 and file2:
+
+        path1 = os.path.join(UPLOAD_DIR, file1.name)
+        path2 = os.path.join(UPLOAD_DIR, file2.name)
+
+        with open(path1, "wb") as f:
+            f.write(file1.read())
+
+        with open(path2, "wb") as f:
+            f.write(file2.read())
+
+        if st.button("Compare PDFs"):
+
+            text1 = ""
+            text2 = ""
+
+            with pdfplumber.open(path1) as pdf:
+                for p in pdf.pages:
+                    text1 += p.extract_text() or ""
+
+            with pdfplumber.open(path2) as pdf:
+                for p in pdf.pages:
+                    text2 += p.extract_text() or ""
+
+            diff = list(ndiff(text1.split(), text2.split()))
+
+            added = [d[2:] for d in diff if d.startswith("+")]
+            removed = [d[2:] for d in diff if d.startswith("-")]
+
+            st.subheader("🟢 Added")
+            st.write(added[:100])
+
+            st.subheader("🔴 Removed")
+            st.write(removed[:100])
+
+# =========================================================
+# ✍️ SIGN (DRAG UI)
+# =========================================================
 with menu[1]:
-    st.subheader("✍️ Sign PDF (Pro UI)")
+    st.header("✍️ Sign PDF (Drag & Resize)")
 
     pdf_file = st.file_uploader("Upload PDF", type=["pdf"])
 
@@ -15,12 +83,12 @@ with menu[1]:
         doc = fitz.open(pdf_path)
         total_pages = len(doc)
 
-        st.success(f"📄 {total_pages} pages detected")
+        st.success(f"{total_pages} pages detected")
 
         # -----------------------------
-        # SIGNATURE DRAW
+        # DRAW SIGNATURE
         # -----------------------------
-        st.markdown("### ✍️ Draw Signature")
+        st.subheader("Draw Signature")
 
         sig_canvas = st_canvas(
             height=200,
@@ -29,14 +97,14 @@ with menu[1]:
             stroke_color="white",
             background_color="#0e1117",
             stroke_width=4,
-            key="sig_draw"
+            key="sig"
         )
 
         if sig_canvas.image_data is not None:
 
             sig_img = Image.fromarray(sig_canvas.image_data.astype("uint8")).convert("RGBA")
 
-            # 👉 Transparent + black ink
+            # 👉 transparent + black
             new_data = []
             for r, g, b, a in sig_img.getdata():
                 if r < 50 and g < 50 and b < 50:
@@ -46,9 +114,9 @@ with menu[1]:
             sig_img.putdata(new_data)
 
             # -----------------------------
-            # PAGE SELECT
+            # PAGE
             # -----------------------------
-            page_num = st.slider("Select Page", 1, total_pages, 1)
+            page_num = st.slider("Page", 1, total_pages, 1)
             page = doc[page_num - 1]
 
             pix = page.get_pixmap()
@@ -60,11 +128,8 @@ with menu[1]:
                 scale = MAX_WIDTH / img.width
                 img = img.resize((int(img.width * scale), int(img.height * scale)))
 
-            st.markdown("### 🎯 Drag & Resize Signature Box")
+            st.subheader("Drag box on PDF")
 
-            # -----------------------------
-            # DRAG UI (RECTANGLE)
-            # -----------------------------
             canvas = st_canvas(
                 background_image=img,
                 height=img.height,
@@ -73,13 +138,10 @@ with menu[1]:
                 stroke_color="#00ff88",
                 fill_color="rgba(0,255,136,0.2)",
                 stroke_width=2,
-                key="pdf_canvas"
+                key="pdf"
             )
 
-            # -----------------------------
-            # APPLY SIGNATURE
-            # -----------------------------
-            if canvas.json_data is not None and len(canvas.json_data["objects"]) > 0:
+            if canvas.json_data and len(canvas.json_data["objects"]) > 0:
 
                 obj = canvas.json_data["objects"][-1]
 
@@ -88,24 +150,19 @@ with menu[1]:
                 w = obj["width"] * obj["scaleX"]
                 h = obj["height"] * obj["scaleY"]
 
-                st.success(f"📍 Position captured")
-
-                # Live Preview
                 preview = img.copy()
-                sig_preview = sig_img.resize((int(w), int(h)))
+                sig_resized = sig_img.resize((int(w), int(h)))
+                preview.paste(sig_resized, (int(x), int(y)), sig_resized)
 
-                preview.paste(sig_preview, (int(x), int(y)), sig_preview)
-
-                st.markdown("### 👀 Live Preview")
+                st.subheader("Preview")
                 st.image(preview)
 
-                if st.button("🚀 Apply Signature"):
+                if st.button("Apply Signature"):
 
                     sig_path = os.path.join(OUTPUT_DIR, "sig.png")
-                    sig_preview.save(sig_path)
+                    sig_resized.save(sig_path)
 
                     doc = fitz.open(pdf_path)
-
                     page = doc[page_num - 1]
 
                     rect = fitz.Rect(
@@ -120,7 +177,28 @@ with menu[1]:
                     out_path = os.path.join(OUTPUT_DIR, "signed.pdf")
                     doc.save(out_path)
 
-                    st.success("✅ Signature applied!")
+                    st.success("Signed!")
 
                     with open(out_path, "rb") as f:
-                        st.download_button("⬇️ Download Signed PDF", f)
+                        st.download_button("Download PDF", f)
+
+# =========================================================
+# 📄 CONVERT
+# =========================================================
+with menu[2]:
+    st.header("📄 Convert")
+
+    uploaded = st.file_uploader("Upload file", type=["txt"])
+
+    if uploaded:
+        text = uploaded.read().decode("utf-8")
+
+        pdf = fitz.open()
+        page = pdf.new_page()
+        page.insert_text((72, 72), text)
+
+        out_path = os.path.join(OUTPUT_DIR, "converted.pdf")
+        pdf.save(out_path)
+
+        with open(out_path, "rb") as f:
+            st.download_button("Download PDF", f)
