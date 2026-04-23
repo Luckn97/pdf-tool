@@ -3,7 +3,7 @@ pdfplumber
 docx2pdf
 pymupdf
 pillow
-opencv-python
+opencv-python-headless==4.9.0.80
 numpy
 scikit-image
 streamlit-drawable-canvas
