@@ -3,10 +3,11 @@ import fitz
 import base64
 import io
 from PIL import Image
+from streamlit_drawable_canvas import st_canvas
 
 st.set_page_config(layout="wide")
 
-st.title("🚀 Sign PRO – Full Version")
+st.title("🚀 Sign PRO – Draw + Drag")
 
 uploaded_file = st.file_uploader("Upload PDF", type="pdf")
 
@@ -24,16 +25,30 @@ if uploaded_file:
     img_bytes = pix.tobytes("png")
     img_base64 = base64.b64encode(img_bytes).decode()
 
-    st.subheader("📄 Drag Signature on PDF")
+    st.subheader("✍️ Draw your signature")
 
-    sig_file = st.file_uploader("Upload Signature", type=["png"])
+    canvas_result = st_canvas(
+        fill_color="rgba(0,0,0,1)",
+        stroke_width=3,
+        stroke_color="black",
+        background_color="white",
+        height=150,
+        width=400,
+        drawing_mode="freedraw",
+        key="sig_canvas",
+    )
 
-    if sig_file:
+    if canvas_result.image_data is not None:
 
-        sig_bytes = sig_file.read()
+        sig_img = Image.fromarray(canvas_result.image_data.astype("uint8"))
+        sig_buffer = io.BytesIO()
+        sig_img.save(sig_buffer, format="PNG")
+        sig_bytes = sig_buffer.getvalue()
+
         sig_base64 = base64.b64encode(sig_bytes).decode()
 
-        # Hidden input to send coords back
+        st.subheader("📄 Drag signature onto PDF")
+
         coord = st.text_input("coords", "", key="coords")
 
         html = f"""
@@ -60,7 +75,6 @@ if uploaded_file:
 
         <div class="container">
             <img src="data:image/png;base64,{img_base64}" class="pdf"/>
-
             <img id="sig" src="data:image/png;base64,{sig_base64}" class="sig"/>
         </div>
 
@@ -78,7 +92,6 @@ if uploaded_file:
         document.addEventListener("mouseup", () => {{
             isDown = false;
 
-            // Save position
             const rect = sig.getBoundingClientRect();
 
             const data = {{
@@ -88,7 +101,10 @@ if uploaded_file:
                 h: rect.height
             }}
 
-            window.parent.postMessage({{type: "streamlit:setComponentValue", value: JSON.stringify(data)}}, "*");
+            window.parent.postMessage({{
+                type: "streamlit:setComponentValue",
+                value: JSON.stringify(data)
+            }}, "*");
         }});
 
         document.addEventListener("mousemove", (e) => {{
@@ -102,7 +118,7 @@ if uploaded_file:
 
         st.components.v1.html(html, height=800)
 
-        # 👉 Position verarbeiten
+        # 👉 Position auslesen
         if coord:
 
             import json
@@ -110,21 +126,15 @@ if uploaded_file:
 
             st.write("📍 Position:", pos)
 
-            if st.button("💾 Apply Signature to PDF"):
+            if st.button("💾 Apply Signature"):
 
                 page_height = page.rect.height
 
-                x = pos["x"]
-                y = pos["y"]
-                w = pos["w"]
-                h = pos["h"]
-
-                # Korrektur für PDF Koordinaten
                 rect = fitz.Rect(
-                    x,
-                    page_height - y - h,
-                    x + w,
-                    page_height - y
+                    pos["x"],
+                    page_height - pos["y"] - pos["h"],
+                    pos["x"] + pos["w"],
+                    page_height - pos["y"]
                 )
 
                 page.insert_image(rect, stream=sig_bytes)
