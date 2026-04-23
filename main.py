@@ -1,5 +1,5 @@
 import streamlit as st
-import fitz  # PyMuPDF
+import fitz
 import numpy as np
 from PIL import Image
 import io
@@ -8,150 +8,199 @@ from streamlit_drawable_canvas import st_canvas
 st.set_page_config(layout="wide")
 
 # -------------------------------
-# UI HEADER
+# HEADER (PRO LOOK)
 # -------------------------------
 st.markdown("""
-# 🚀 PDF Toolkit PRO
-### ✍️ Sign PRO (Drag & Drop + Resize + Multi Page)
-""")
+<style>
+.title {
+    font-size:40px;
+    font-weight:700;
+}
+.subtitle {
+    color:gray;
+    margin-bottom:20px;
+}
+</style>
+
+<div class="title">🚀 PDF Toolkit PRO</div>
+<div class="subtitle">Compare • AI Compare • Convert • Sign</div>
+""", unsafe_allow_html=True)
 
 # -------------------------------
-# UPLOAD PDF
+# NAVIGATION
 # -------------------------------
-pdf_file = st.file_uploader("Upload PDF", type=["pdf"])
+menu = st.radio(
+    "Select Feature",
+    ["Compare", "AI Compare", "Convert", "Sign PRO"],
+    horizontal=True
+)
 
-if pdf_file:
-    pdf_bytes = pdf_file.read()
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    total_pages = len(doc)
+# -------------------------------
+# SIGN PRO FEATURE
+# -------------------------------
+if menu == "Sign PRO":
 
-    # -------------------------------
-    # PAGE SELECTION
-    # -------------------------------
-    page_num = st.slider("Select Page", 1, total_pages, 1)
-    page = doc[page_num - 1]
+    st.markdown("## ✍️ Sign PRO")
 
-    pix = page.get_pixmap()
-    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+    pdf_file = st.file_uploader("Upload PDF", type=["pdf"])
 
-    # -------------------------------
-    # DRAW SIGNATURE
-    # -------------------------------
-    st.subheader("✍️ Draw Signature")
+    if pdf_file:
+        pdf_bytes = pdf_file.read()
 
-    sig_canvas = st_canvas(
-        stroke_width=4,
-        stroke_color="#FFFFFF",
-        background_color="#000000",
-        height=200,
-        width=400,
-        drawing_mode="freedraw",
-        key="sig",
-    )
+        if len(pdf_bytes) == 0:
+            st.error("Empty PDF")
+            st.stop()
 
-    signature = None
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        total_pages = len(doc)
 
-    if sig_canvas.image_data is not None:
-        sig = sig_canvas.image_data
+        if total_pages == 0:
+            st.error("PDF has no pages")
+            st.stop()
 
-        # Convert to transparent PNG
-        sig = (sig[:, :, :3]).astype(np.uint8)
-        gray = np.mean(sig, axis=2)
+        # -------------------------------
+        # PAGE SELECT (FIXED)
+        # -------------------------------
+        page_num = st.slider(
+            "Select Page",
+            min_value=1,
+            max_value=int(total_pages),
+            value=1
+        )
 
-        mask = gray > 50
-        sig[mask] = [0, 0, 0]
+        page = doc[page_num - 1]
 
-        rgba = np.zeros((sig.shape[0], sig.shape[1], 4), dtype=np.uint8)
-        rgba[:, :, :3] = sig
-        rgba[:, :, 3] = np.where(mask, 0, 255)
+        pix = page.get_pixmap()
+        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-        signature = Image.fromarray(rgba)
+        # -------------------------------
+        # DRAW SIGNATURE
+        # -------------------------------
+        st.subheader("✍️ Draw Signature")
 
-    # -------------------------------
-    # DRAG + RESIZE UI
-    # -------------------------------
-    st.subheader("🎯 Place Signature (Drag & Resize)")
+        sig_canvas = st_canvas(
+            stroke_width=4,
+            stroke_color="#FFFFFF",
+            background_color="#000000",
+            height=200,
+            width=400,
+            drawing_mode="freedraw",
+            key="sig",
+        )
 
-    canvas = st_canvas(
-        background_image=img,
-        update_streamlit=True,
-        height=img.height,
-        width=img.width,
-        drawing_mode="rect",
-        key="placement",
-    )
+        signature = None
 
-    rect = None
+        if sig_canvas.image_data is not None:
+            sig = sig_canvas.image_data
 
-    if canvas.json_data is not None:
-        objects = canvas.json_data["objects"]
-        if len(objects) > 0:
-            rect = objects[-1]
+            sig = (sig[:, :, :3]).astype(np.uint8)
+            gray = np.mean(sig, axis=2)
 
-    # -------------------------------
-    # LIVE PREVIEW
-    # -------------------------------
-    st.subheader("👀 Live Preview")
+            mask = gray > 50
+            sig[mask] = [0, 0, 0]
 
-    preview_img = img.copy()
+            rgba = np.zeros((sig.shape[0], sig.shape[1], 4), dtype=np.uint8)
+            rgba[:, :, :3] = sig
+            rgba[:, :, 3] = np.where(mask, 0, 255)
 
-    if rect and signature:
-        x = int(rect["left"])
-        y = int(rect["top"])
-        w = int(rect["width"])
-        h = int(rect["height"])
+            signature = Image.fromarray(rgba)
 
-        sig_resized = signature.resize((w, h))
+        # -------------------------------
+        # PLACE SIGNATURE
+        # -------------------------------
+        st.subheader("🎯 Place Signature")
 
-        preview_img.paste(sig_resized, (x, y), sig_resized)
+        canvas = st_canvas(
+            background_image=img,
+            update_streamlit=True,
+            height=img.height,
+            width=img.width,
+            drawing_mode="rect",
+            key="placement",
+        )
 
-    st.image(preview_img, use_column_width=True)
+        rect = None
 
-    # -------------------------------
-    # MULTI PAGE SELECT
-    # -------------------------------
-    st.subheader("📄 Apply to Pages")
+        if canvas.json_data is not None:
+            objects = canvas.json_data["objects"]
+            if len(objects) > 0:
+                rect = objects[-1]
 
-    apply_all = st.checkbox("Apply to ALL pages")
-    pages_selected = st.multiselect(
-        "Or select pages",
-        list(range(1, total_pages + 1)),
-        default=[page_num],
-    )
+        # -------------------------------
+        # LIVE PREVIEW
+        # -------------------------------
+        st.subheader("👀 Live Preview")
 
-    # -------------------------------
-    # GENERATE PDF
-    # -------------------------------
-    if st.button("🚀 Generate Signed PDF"):
+        preview_img = img.copy()
 
-        if not signature or not rect:
-            st.error("Draw signature AND select placement box")
-        else:
-            for i in range(total_pages):
-                if apply_all or (i + 1 in pages_selected):
+        if rect and signature:
+            x = int(rect["left"])
+            y = int(rect["top"])
+            w = int(rect["width"])
+            h = int(rect["height"])
 
-                    page = doc[i]
+            sig_resized = signature.resize((w, h))
+            preview_img.paste(sig_resized, (x, y), sig_resized)
 
-                    x = rect["left"]
-                    y = rect["top"]
-                    w = rect["width"]
-                    h = rect["height"]
+        st.image(preview_img, use_column_width=True)
 
-                    rect_pdf = fitz.Rect(x, y, x + w, y + h)
+        # -------------------------------
+        # MULTI PAGE
+        # -------------------------------
+        st.subheader("📄 Apply to Pages")
 
-                    img_bytes = io.BytesIO()
-                    signature.save(img_bytes, format="PNG")
+        apply_all = st.checkbox("Apply to ALL pages")
+        pages_selected = st.multiselect(
+            "Or select pages",
+            list(range(1, total_pages + 1)),
+            default=[page_num],
+        )
 
-                    page.insert_image(rect_pdf, stream=img_bytes.getvalue())
+        # -------------------------------
+        # EXPORT PDF
+        # -------------------------------
+        if st.button("🚀 Generate Signed PDF"):
 
-            output = io.BytesIO()
-            doc.save(output)
+            if not signature or not rect:
+                st.error("Draw signature AND place rectangle")
+            else:
+                for i in range(total_pages):
+                    if apply_all or (i + 1 in pages_selected):
 
-            st.success("✅ PDF Signed!")
+                        page = doc[i]
 
-            st.download_button(
-                "⬇️ Download Signed PDF",
-                data=output.getvalue(),
-                file_name="signed.pdf",
-                mime="application/pdf",
-            )
+                        x = rect["left"]
+                        y = rect["top"]
+                        w = rect["width"]
+                        h = rect["height"]
+
+                        rect_pdf = fitz.Rect(x, y, x + w, y + h)
+
+                        img_bytes = io.BytesIO()
+                        signature.save(img_bytes, format="PNG")
+
+                        page.insert_image(rect_pdf, stream=img_bytes.getvalue())
+
+                output = io.BytesIO()
+                doc.save(output)
+
+                st.success("✅ PDF Signed!")
+
+                st.download_button(
+                    "⬇️ Download Signed PDF",
+                    data=output.getvalue(),
+                    file_name="signed.pdf",
+                    mime="application/pdf",
+                )
+
+# -------------------------------
+# PLACEHOLDER FEATURES
+# -------------------------------
+elif menu == "Compare":
+    st.info("Compare coming next...")
+
+elif menu == "AI Compare":
+    st.info("AI Compare coming next...")
+
+elif menu == "Convert":
+    st.info("Convert coming next...")
