@@ -2,26 +2,42 @@ import streamlit as st
 import pdfplumber
 import difflib
 from io import BytesIO
+from PIL import Image
+import numpy as np
+from streamlit_drawable_canvas import st_canvas
+
+# PDF SIGN
+from PyPDF2 import PdfReader, PdfWriter
+from reportlab.pdfgen import canvas
 
 st.set_page_config(page_title="PDF Toolkit PRO", layout="wide")
 
 # ======================
-# HEADER
+# HERO UI
 # ======================
-st.title("🚀 PDF Toolkit PRO")
-st.markdown("Compare • Convert • Sign")
+st.markdown("""
+<style>
+.big-title {
+    font-size: 42px;
+    font-weight: 700;
+}
+.subtitle {
+    color: #aaa;
+    margin-bottom: 20px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown('<div class="big-title">🚀 PDF Toolkit PRO</div>', unsafe_allow_html=True)
+st.markdown('<div class="subtitle">Compare • Convert • Sign PDFs instantly</div>', unsafe_allow_html=True)
 
 # ======================
-# MENU (FIXED)
+# NAVIGATION
 # ======================
-menu = st.radio(
-    "Select Feature",
-    ["Compare", "AI Compare", "Convert", "Sign"],
-    horizontal=True
-)
+tab1, tab2, tab3, tab4 = st.tabs(["📊 Compare", "🧠 AI Compare", "🔄 Convert", "✍️ Sign"])
 
 # ======================
-# HELPER: TEXT EXTRACT
+# HELPER
 # ======================
 def extract_text(pdf_file):
     text = ""
@@ -31,124 +47,138 @@ def extract_text(pdf_file):
     return text
 
 # ======================
-# COMPARE (BASIC)
+# COMPARE
 # ======================
-if menu == "Compare":
-    st.header("📊 PDF Compare")
+with tab1:
+    st.subheader("Compare PDFs")
 
-    file1 = st.file_uploader("Upload PDF 1", type="pdf")
-    file2 = st.file_uploader("Upload PDF 2", type="pdf")
+    f1 = st.file_uploader("PDF 1", type="pdf", key="c1")
+    f2 = st.file_uploader("PDF 2", type="pdf", key="c2")
 
-    if file1 and file2:
-        text1 = extract_text(file1)
-        text2 = extract_text(file2)
+    if f1 and f2:
+        t1 = extract_text(f1)
+        t2 = extract_text(f2)
 
-        diff = list(difflib.ndiff(text1.splitlines(), text2.splitlines()))
+        diff = list(difflib.ndiff(t1.splitlines(), t2.splitlines()))
 
-        st.subheader("Differences:")
         for line in diff:
             if line.startswith("- "):
-                st.markdown(f"🔴 {line}")
+                st.error(line)
             elif line.startswith("+ "):
-                st.markdown(f"🟢 {line}")
+                st.success(line)
 
 # ======================
-# AI COMPARE (SMART)
+# AI COMPARE
 # ======================
-elif menu == "AI Compare":
-    st.header("🧠 AI Compare (Smart Diff)")
+with tab2:
+    st.subheader("AI Compare (Smart Diff)")
 
-    file1 = st.file_uploader("Upload Original PDF", type="pdf")
-    file2 = st.file_uploader("Upload Modified PDF", type="pdf")
+    f1 = st.file_uploader("Original", type="pdf", key="a1")
+    f2 = st.file_uploader("Modified", type="pdf", key="a2")
 
-    if file1 and file2:
-        text1 = extract_text(file1)
-        text2 = extract_text(file2)
+    if f1 and f2:
+        t1 = extract_text(f1)
+        t2 = extract_text(f2)
 
-        changes = list(difflib.unified_diff(
-            text1.split(),
-            text2.split(),
-            lineterm=""
-        ))
+        changes = list(difflib.unified_diff(t1.split(), t2.split()))
 
-        st.subheader("Smart Changes:")
         for line in changes:
             if line.startswith("-"):
-                st.markdown(f"🔴 Removed: {line[1:]}")
+                st.error(f"Removed: {line}")
             elif line.startswith("+"):
-                st.markdown(f"🟢 Added: {line[1:]}")
+                st.success(f"Added: {line}")
 
 # ======================
-# CONVERT (SAFE VERSION)
+# CONVERT
 # ======================
-elif menu == "Convert":
-    st.header("🔄 Convert to PDF")
+with tab3:
+    st.subheader("Convert TXT → PDF")
 
-    uploaded = st.file_uploader("Upload TXT file", type=["txt"])
+    txt = st.file_uploader("Upload TXT", type="txt")
 
-    if uploaded:
-        text = uploaded.read().decode("utf-8")
-
-        from reportlab.lib.pagesizes import letter
-        from reportlab.pdfgen import canvas
+    if txt:
+        content = txt.read().decode("utf-8")
 
         buffer = BytesIO()
-        c = canvas.Canvas(buffer, pagesize=letter)
+        c = canvas.Canvas(buffer)
 
-        y = 750
-        for line in text.split("\n"):
+        y = 800
+        for line in content.split("\n"):
             c.drawString(50, y, line)
             y -= 15
 
         c.save()
         buffer.seek(0)
 
-        st.download_button(
-            "Download PDF",
-            buffer,
-            file_name="converted.pdf",
-            mime="application/pdf"
-        )
+        st.download_button("Download PDF", buffer, "converted.pdf")
 
 # ======================
-# SIGN (BASIC STABLE)
+# SIGN (REAL DRAW)
 # ======================
-elif menu == "Sign":
-    st.header("✍️ PDF Sign (Basic Stable Version)")
+with tab4:
+    st.subheader("Draw & Sign PDF")
 
     pdf_file = st.file_uploader("Upload PDF", type="pdf")
 
-    signature_text = st.text_input("Enter Signature (for now text-based)")
+    st.markdown("### ✍️ Draw Signature")
 
-    if pdf_file and signature_text:
-        from PyPDF2 import PdfReader, PdfWriter
-        from reportlab.pdfgen import canvas
+    canvas_result = st_canvas(
+        fill_color="rgba(0,0,0,0)",
+        stroke_width=3,
+        stroke_color="white",  # 👈 FIX: sichtbar im Darkmode
+        background_color="#111",
+        height=200,
+        width=400,
+        drawing_mode="freedraw",
+        key="canvas"
+    )
 
-        reader = PdfReader(pdf_file)
-        writer = PdfWriter()
+    if pdf_file and canvas_result.image_data is not None:
 
-        for page in reader.pages:
-            writer.add_page(page)
+        img = canvas_result.image_data.astype("uint8")
 
-        # Create signature overlay
-        packet = BytesIO()
-        can = canvas.Canvas(packet)
+        # Transparent machen
+        img_pil = Image.fromarray(img).convert("RGBA")
+        datas = img_pil.getdata()
 
-        can.drawString(100, 100, signature_text)
-        can.save()
+        newData = []
+        for item in datas:
+            if item[0] < 50 and item[1] < 50 and item[2] < 50:
+                newData.append((255, 255, 255, 0))
+            else:
+                newData.append((0, 0, 0, 255))
 
-        packet.seek(0)
-        overlay = PdfReader(packet)
+        img_pil.putdata(newData)
 
-        writer.pages[0].merge_page(overlay.pages[0])
+        # Save temp image
+        sig_buffer = BytesIO()
+        img_pil.save(sig_buffer, format="PNG")
+        sig_buffer.seek(0)
 
-        output = BytesIO()
-        writer.write(output)
-        output.seek(0)
+        st.image(img_pil, caption="Signature Preview")
 
-        st.download_button(
-            "Download Signed PDF",
-            output,
-            file_name="signed.pdf",
-            mime="application/pdf"
-        )
+        if st.button("Sign PDF"):
+
+            reader = PdfReader(pdf_file)
+            writer = PdfWriter()
+
+            for page in reader.pages:
+                writer.add_page(page)
+
+            # Overlay PDF
+            packet = BytesIO()
+            can = canvas.Canvas(packet)
+
+            can.drawImage(Image.open(sig_buffer), 100, 100, width=150, height=50)
+            can.save()
+
+            packet.seek(0)
+            overlay = PdfReader(packet)
+
+            writer.pages[0].merge_page(overlay.pages[0])
+
+            output = BytesIO()
+            writer.write(output)
+            output.seek(0)
+
+            st.download_button("Download Signed PDF", output, "signed.pdf")
