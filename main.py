@@ -28,28 +28,31 @@ mode = st.radio(
 # =========================
 if mode == "Sign PRO":
 
-    st.markdown("## ✍️ Sign PRO (Stable Version)")
+    st.markdown("## ✍️ Sign PRO (Click Position Version)")
 
     uploaded_pdf = st.file_uploader("Upload PDF", type=["pdf"])
 
     if uploaded_pdf is not None:
 
+        # =========================
+        # 📄 LOAD PDF
+        # =========================
         try:
             pdf_bytes = uploaded_pdf.read()
             doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-
-        except Exception as e:
+        except:
             st.error("❌ PDF konnte nicht geladen werden")
             st.stop()
 
-        # 🛑 HARDCHECK → verhindert Slider Crash
         if doc is None or len(doc) == 0:
-            st.error("❌ PDF hat keine Seiten oder ist beschädigt")
+            st.error("❌ PDF hat keine Seiten")
             st.stop()
 
         total_pages = len(doc)
 
-        # ✅ SAFE SLIDER (CRASH FIX)
+        # =========================
+        # 📄 PAGE SELECT (SAFE)
+        # =========================
         page_num = st.number_input(
             "Select Page",
             min_value=1,
@@ -62,8 +65,6 @@ if mode == "Sign PRO":
 
         pix = page.get_pixmap()
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-
-        st.image(img, caption=f"Page {page_num}", use_container_width=True)
 
         # =========================
         # ✍️ SIGNATURE DRAW
@@ -81,12 +82,43 @@ if mode == "Sign PRO":
         )
 
         # =========================
-        # 📄 SIGN EXPORT
+        # 📍 CLICK POSITION
+        # =========================
+        st.markdown("### 🎯 Click on PDF to place signature")
+
+        click_canvas = st_canvas(
+            fill_color="rgba(0,0,0,0)",
+            stroke_width=1,
+            stroke_color="#FF0000",
+            background_image=img,
+            height=img.height,
+            width=img.width,
+            drawing_mode="point",
+            key="position"
+        )
+
+        x, y = None, None
+
+        if click_canvas.json_data is not None:
+            objects = click_canvas.json_data["objects"]
+            if len(objects) > 0:
+                last = objects[-1]
+                x = int(last["left"])
+                y = int(last["top"])
+
+                st.success(f"📍 Position: X={x}, Y={y}")
+
+        # =========================
+        # 📄 EXPORT PDF
         # =========================
         if st.button("📄 Generate Signed PDF"):
 
             if sig.image_data is None:
                 st.warning("Bitte unterschreiben")
+                st.stop()
+
+            if x is None or y is None:
+                st.warning("Bitte Position wählen")
                 st.stop()
 
             # Convert signature
@@ -108,8 +140,24 @@ if mode == "Sign PRO":
             buffer = io.BytesIO()
             sig_img.save(buffer, format="PNG")
 
-            # 👉 FIXED POSITION (center)
-            rect = fitz.Rect(100, 100, 300, 180)
+            # =========================
+            # 🎯 SCALE POSITION
+            # =========================
+            pdf_width = page.rect.width
+            pdf_height = page.rect.height
+
+            scale_x = pdf_width / img.width
+            scale_y = pdf_height / img.height
+
+            pdf_x = x * scale_x
+            pdf_y = y * scale_y
+
+            rect = fitz.Rect(
+                pdf_x,
+                pdf_y,
+                pdf_x + 150,
+                pdf_y + 50
+            )
 
             page.insert_image(rect, stream=buffer.getvalue())
 
@@ -117,7 +165,7 @@ if mode == "Sign PRO":
             doc.save(output)
             output.seek(0)
 
-            st.success("✅ PDF erstellt!")
+            st.success("✅ Perfekt positioniert!")
 
             st.download_button(
                 "⬇️ Download Signed PDF",
