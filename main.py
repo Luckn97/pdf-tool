@@ -133,33 +133,64 @@ with menu[1]:
 
             st.info("👉 Drag & resize signature → applies to all selected pages")
 
-            if st.button("🚀 Apply Signature to Pages"):
+          if st.button("🚀 Apply Signature to Pages"):
 
-                if canvas.json_data is not None:
-                    objects = canvas.json_data.get("objects", [])
+    if canvas.json_data is not None:
+        objects = canvas.json_data.get("objects", [])
 
-                    if len(objects) > 0:
-                        obj = objects[0]
+        if len(objects) > 0:
+            obj = objects[0]
 
-                        x = obj["left"] / scale
-                        y = obj["top"] / scale
-                        w = obj["scaleX"] * sig_img.width / scale
-                        h = obj["scaleY"] * sig_img.height / scale
+            # 👉 Position auf Referenzseite
+            x = obj["left"] / scale
+            y = obj["top"] / scale
+            w = obj["scaleX"] * sig_img.width / scale
+            h = obj["scaleY"] * sig_img.height / scale
 
-                        sig_path = os.path.join(OUTPUT_DIR, "sig.png")
-                        sig_img.save(sig_path)
+            sig_path = os.path.join(OUTPUT_DIR, "sig.png")
+            sig_img.save(sig_path)
 
-                        doc = fitz.open(pdf_path)
+            doc = fitz.open(pdf_path)
 
-                        for page_index in pages_to_sign:
-                            page = doc[page_index - 1]
-                            rect = fitz.Rect(x, y, x + w, y + h)
-                            page.insert_image(rect, filename=sig_path)
+            preview_images = []
 
-                        out = os.path.join(OUTPUT_DIR, "signed_multi.pdf")
-                        doc.save(out)
+            for page_index in pages_to_sign:
 
-                        with open(out, "rb") as f:
-                            st.download_button("⬇️ Download Signed PDF", f)
+                page = doc[page_index - 1]
 
-                        st.success("✅ Signature applied to selected pages")
+                # 👉 Seiten-Größe berücksichtigen
+                page_width = page.rect.width
+                page_height = page.rect.height
+
+                # 👉 Skalierung korrekt berechnen
+                scale_x = page_width / img.width
+                scale_y = page_height / img.height
+
+                rect = fitz.Rect(
+                    x * scale_x,
+                    y * scale_y,
+                    (x + w) * scale_x,
+                    (y + h) * scale_y
+                )
+
+                page.insert_image(rect, filename=sig_path)
+
+                # 👉 LIVE PREVIEW GENERIEREN
+                pix = page.get_pixmap()
+                preview_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                preview_images.append((page_index, preview_img))
+
+            out = os.path.join(OUTPUT_DIR, "signed_multi.pdf")
+            doc.save(out)
+
+            st.success("✅ Signature applied")
+
+            # 👉 🔥 LIVE PREVIEW ANZEIGEN
+            st.markdown("## 👀 Preview with Signature")
+
+            for page_index, p_img in preview_images:
+                st.markdown(f"Page {page_index}")
+                st.image(p_img, use_column_width=True)
+
+            with open(out, "rb") as f:
+                st.download_button("⬇️ Download Signed PDF", f)
