@@ -2,10 +2,11 @@ import streamlit as st
 import os
 import fitz
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image
 from skimage.metrics import structural_similarity as ssim
 from streamlit_drawable_canvas import st_canvas
-import difflib
+import base64
+from io import BytesIO
 
 UPLOAD_DIR = "uploads"
 OUTPUT_DIR = "outputs"
@@ -33,7 +34,7 @@ def pdf_to_images(pdf_path):
     return images
 
 # -----------------------------
-# COMPARE TAB
+# COMPARE
 # -----------------------------
 with menu[0]:
     st.subheader("📊 PDF Comparison")
@@ -61,7 +62,6 @@ with menu[0]:
                 g2 = np.array(imgs2[i].convert("L"))
 
                 score, diff = ssim(g1, g2, full=True)
-
                 diff = (1 - diff) * 255
                 diff = diff.astype("uint8")
 
@@ -69,44 +69,32 @@ with menu[0]:
                 st.image(Image.fromarray(diff))
 
 # -----------------------------
-# SIGN TAB (FINAL PRO VERSION)
+# SIGN (UX PRO)
 # -----------------------------
 with menu[1]:
-    st.subheader("✍️ Sign PDF (Pro Mode)")
+    st.subheader("✍️ Sign PDF (Pro UX Mode)")
 
     pdf_file = st.file_uploader("Upload PDF", type=["pdf"])
 
     if pdf_file:
 
-        if pdf_file.size == 0:
-            st.error("❌ Empty file")
-            st.stop()
-
         pdf_path = os.path.join(UPLOAD_DIR, pdf_file.name)
         with open(pdf_path, "wb") as f:
             f.write(pdf_file.read())
 
-        try:
-            doc = fitz.open(pdf_path)
-            total_pages = len(doc)
-        except:
-            st.error("❌ Cannot read PDF")
-            st.stop()
-
-        if total_pages == 0:
-            st.error("❌ No pages found")
-            st.stop()
+        doc = fitz.open(pdf_path)
+        total_pages = len(doc)
 
         st.success(f"📄 {total_pages} pages detected")
 
         pages_to_sign = st.multiselect(
-            "Select pages to sign",
+            "Select pages",
             list(range(1, total_pages + 1)),
             default=[1]
         )
 
         # -----------------------------
-        # DRAW SIGNATURE
+        # SIGNATURE DRAW
         # -----------------------------
         st.markdown("### ✍️ Draw Signature")
 
@@ -122,10 +110,9 @@ with menu[1]:
 
         if canvas_sig.image_data is not None:
 
-            sig_img = Image.fromarray(canvas_sig.image_data.astype("uint8"))
-            sig_img = sig_img.convert("RGBA")
+            sig_img = Image.fromarray(canvas_sig.image_data.astype("uint8")).convert("RGBA")
 
-            # 👉 Clean signature (transparent + black)
+            # 👉 Clean transparent background
             new_data = []
             for r, g, b, a in sig_img.getdata():
                 if r < 60 and g < 60 and b < 60:
@@ -134,10 +121,15 @@ with menu[1]:
                     new_data.append((0, 0, 0, 255))
             sig_img.putdata(new_data)
 
+            # 👉 convert to base64 for canvas
+            buf = BytesIO()
+            sig_img.save(buf, format="PNG")
+            sig_base64 = base64.b64encode(buf.getvalue()).decode()
+
             # -----------------------------
-            # POSITION (REFERENCE PAGE)
+            # PDF PREVIEW + SIGN
             # -----------------------------
-            st.markdown("### 🎯 Position Signature")
+            st.markdown("### 🎯 Place Signature")
 
             ref_page = doc[0]
             pix = ref_page.get_pixmap()
@@ -149,79 +141,77 @@ with menu[1]:
                 scale = MAX_WIDTH / img.width
                 img = img.resize((int(img.width * scale), int(img.height * scale)))
 
-            st.image(img, use_column_width=True)
+            # 👉 UX Verbesserung
+            st.info("👉 Drag, resize & position your signature (like DocuSign)")
 
             canvas = st_canvas(
                 height=img.height,
                 width=img.width,
+                background_image=img,
                 drawing_mode="transform",
-                background_color="rgba(0,0,0,0)",
+                initial_drawing={
+                    "version": "4.4.0",
+                    "objects": [
+                        {
+                            "type": "image",
+                            "left": img.width * 0.3,
+                            "top": img.height * 0.75,
+                            "scaleX": 0.5,
+                            "scaleY": 0.5,
+                            "src": f"data:image/png;base64,{sig_base64}",
+                        }
+                    ],
+                },
                 key="pdf"
             )
 
-            st.info("👉 Drag & resize signature → applies to all selected pages")
-
             # -----------------------------
-            # APPLY SIGNATURE
+            # APPLY
             # -----------------------------
-            if st.button("🚀 Apply Signature to Pages"):
+            if st.button("🚀 Apply Signature"):
 
-                if canvas.json_data is not None:
-                    objects = canvas.json_data.get("objects", [])
+                if canvas.json_data:
+                    obj = canvas.json_data["objects"][0]
 
-                    if len(objects) > 0:
-                        obj = objects[0]
+                    x = obj["left"] / scale
+                    y = obj["top"] / scale
+                    w = obj["scaleX"] * sig_img.width / scale
+                    h = obj["scaleY"] * sig_img.height / scale
 
-                        x = obj["left"] / scale
-                        y = obj["top"] / scale
-                        w = obj["scaleX"] * sig_img.width / scale
-                        h = obj["scaleY"] * sig_img.height / scale
+                    sig_path = os.path.join(OUTPUT_DIR, "sig.png")
+                    sig_img.save(sig_path)
 
-                        sig_path = os.path.join(OUTPUT_DIR, "sig.png")
-                        sig_img.save(sig_path)
+                    doc = fitz.open(pdf_path)
+                    previews = []
 
-                        doc = fitz.open(pdf_path)
+                    for page_index in pages_to_sign:
+                        page = doc[page_index - 1]
 
-                        preview_images = []
+                        scale_x = page.rect.width / img.width
+                        scale_y = page.rect.height / img.height
 
-                        for page_index in pages_to_sign:
+                        rect = fitz.Rect(
+                            x * scale_x,
+                            y * scale_y,
+                            (x + w) * scale_x,
+                            (y + h) * scale_y
+                        )
 
-                            page = doc[page_index - 1]
+                        page.insert_image(rect, filename=sig_path)
 
-                            page_width = page.rect.width
-                            page_height = page.rect.height
+                        pix = page.get_pixmap()
+                        previews.append((page_index, Image.frombytes("RGB", [pix.width, pix.height], pix.samples)))
 
-                            scale_x = page_width / img.width
-                            scale_y = page_height / img.height
+                    out_path = os.path.join(OUTPUT_DIR, "signed.pdf")
+                    doc.save(out_path)
 
-                            rect = fitz.Rect(
-                                x * scale_x,
-                                y * scale_y,
-                                (x + w) * scale_x,
-                                (y + h) * scale_y
-                            )
+                    st.success("✅ Done")
 
-                            page.insert_image(rect, filename=sig_path)
+                    st.markdown("## 👀 Live Preview")
 
-                            # 👉 LIVE PREVIEW
-                            pix = page.get_pixmap()
-                            preview_img = Image.frombytes(
-                                "RGB",
-                                [pix.width, pix.height],
-                                pix.samples
-                            )
-                            preview_images.append((page_index, preview_img))
+                    for p, im in previews:
+                        st.markdown(f"Page {p}")
+                        st.image(im, use_column_width=True)
 
-                        out = os.path.join(OUTPUT_DIR, "signed_multi.pdf")
-                        doc.save(out)
-
-                        st.success("✅ Signature applied")
-
-                        st.markdown("## 👀 Preview with Signature")
-
-                        for page_index, p_img in preview_images:
-                            st.markdown(f"Page {page_index}")
-                            st.image(p_img, use_column_width=True)
-
-                        with open(out, "rb") as f:
-                            st.download_button("⬇️ Download Signed PDF", f)
+                    with open(out_path, "rb") as f:
+                        st.download_button("⬇️ Download PDF", f)
