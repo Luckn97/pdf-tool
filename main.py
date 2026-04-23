@@ -1,13 +1,13 @@
 import streamlit as st
-import fitz  # PyMuPDF
+import fitz
+import base64
 from PIL import Image
 import io
 
 st.set_page_config(layout="wide")
 
-st.title("✍️ Sign PRO – Stable Version (No pdf2image)")
+st.title("🚀 Sign PRO – Drag & Drop")
 
-# Upload PDF
 uploaded_file = st.file_uploader("Upload PDF", type="pdf")
 
 if uploaded_file:
@@ -15,80 +15,71 @@ if uploaded_file:
     pdf_bytes = uploaded_file.read()
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
 
-    total_pages = len(doc)
+    page = doc[0]
 
-    # Stabiler Page Selector (kein Slider Bug mehr)
-    page_num = st.number_input(
-        "Select Page",
-        min_value=1,
-        max_value=total_pages,
-        value=1,
-        step=1
-    )
-
-    page = doc[page_num - 1]
-
-    # Render Page als Image
     pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+    img_bytes = pix.tobytes("png")
 
-    st.subheader("📄 PDF Preview")
+    img_base64 = base64.b64encode(img_bytes).decode()
 
-    st.image(img, use_container_width=True)
-
-    # Position auswählen
-    st.subheader("📍 Position")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        x = st.slider("X Position", 0, img.width, img.width // 2)
-
-    with col2:
-        y = st.slider("Y Position", 0, img.height, img.height // 2)
-
-    # Signature Upload
-    st.subheader("✍️ Upload Signature")
+    st.subheader("📄 Drag your signature onto the PDF")
 
     sig_file = st.file_uploader("Upload Signature (PNG)", type=["png"])
 
     if sig_file:
 
-        sig = Image.open(sig_file).convert("RGBA")
+        sig_bytes = sig_file.read()
+        sig_base64 = base64.b64encode(sig_bytes).decode()
 
-        # Preview
-        st.subheader("🔍 Live Preview")
+        # HTML DRAG UI
+        html_code = f"""
+        <style>
+        .container {{
+            position: relative;
+            width: 100%;
+        }}
+        .pdf {{
+            width: 100%;
+        }}
+        .sig {{
+            position: absolute;
+            top: 50px;
+            left: 50px;
+            width: 150px;
+            cursor: move;
+        }}
+        </style>
 
-        preview = img.copy()
-        preview.paste(sig, (x, y), sig)
+        <div class="container">
+            <img src="data:image/png;base64,{img_base64}" class="pdf"/>
 
-        st.image(preview, use_container_width=True)
+            <img id="sig" src="data:image/png;base64,{sig_base64}" class="sig"/>
+        </div>
 
-        # Sign PDF
-        if st.button("💾 Sign PDF"):
+        <script>
+        const sig = document.getElementById("sig");
 
-            # Signature vorbereiten
-            sig_bytes = sig_file.read()
-            sig_rect = fitz.Rect(x, y, x + 150, y + 50)
+        let offsetX, offsetY, isDown = false;
 
-            # Y Koordinate fixen (PyMuPDF hat andere Origin)
-            page_height = page.rect.height
-            corrected_rect = fitz.Rect(
-                x,
-                page_height - y - 50,
-                x + 150,
-                page_height - y
-            )
+        sig.addEventListener("mousedown", (e) => {{
+            isDown = true;
+            offsetX = e.offsetX;
+            offsetY = e.offsetY;
+        }});
 
-            page.insert_image(corrected_rect, stream=sig_bytes)
+        document.addEventListener("mouseup", () => {{
+            isDown = false;
+        }});
 
-            output = io.BytesIO()
-            doc.save(output)
+        document.addEventListener("mousemove", (e) => {{
+            if (!isDown) return;
 
-            st.success("✅ PDF signed successfully!")
+            sig.style.left = (e.pageX - offsetX) + "px";
+            sig.style.top = (e.pageY - offsetY) + "px";
+        }});
+        </script>
+        """
 
-            st.download_button(
-                "Download Signed PDF",
-                data=output.getvalue(),
-                file_name="signed.pdf"
-            )
+        st.components.v1.html(html_code, height=800)
+
+        st.info("👉 Drag the signature visually (backend save comes next step)")
