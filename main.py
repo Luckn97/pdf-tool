@@ -3,7 +3,6 @@ from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 import fitz
 import io
-import numpy as np
 
 st.set_page_config(layout="wide")
 
@@ -18,22 +17,16 @@ if pdf_file:
     page_num = st.number_input("Page", min_value=1, max_value=len(doc), value=1)
     page = doc[page_num - 1]
 
-    # PDF → Image (SAFE)
+    # PDF → Image
     pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-    img_bytes = pix.tobytes("png")
+    pdf_image = Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
 
-    pdf_image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-
-    # Resize für UI
+    # Resize
     MAX_WIDTH = 900
     scale = MAX_WIDTH / pdf_image.width
     new_w = int(pdf_image.width * scale)
     new_h = int(pdf_image.height * scale)
-
     pdf_image = pdf_image.resize((new_w, new_h))
-
-    # 🔥 WICHTIG: in numpy umwandeln (verhindert Streamlit Bug)
-    bg_array = np.array(pdf_image)
 
     st.subheader("✍️ Draw Signature")
 
@@ -50,14 +43,15 @@ if pdf_file:
 
     if sig_canvas.image_data is not None:
 
-        st.subheader("👉 Drag & Resize directly on PDF")
+        signature = Image.fromarray(sig_canvas.image_data.astype("uint8")).convert("RGBA")
+
+        st.subheader("👉 Drag & Resize")
 
         canvas_result = st_canvas(
             fill_color="rgba(0,0,0,0)",
             stroke_width=1,
             stroke_color="blue",
-            background_image=bg_array,  # 🔥 DAS ist der Fix
-            update_streamlit=True,
+            background_color="white",
             height=new_h,
             width=new_w,
             drawing_mode="transform",
@@ -65,17 +59,36 @@ if pdf_file:
                 "version": "4.4.0",
                 "objects": [
                     {
-                        "type": "image",
+                        "type": "rect",
                         "left": 100,
                         "top": 100,
-                        "scaleX": 0.5,
-                        "scaleY": 0.5,
-                        "angle": 0,
-                        "src": sig_canvas.image_data.tolist(),
+                        "width": 200,
+                        "height": 100,
+                        "fill": "rgba(0,0,0,0)",
+                        "stroke": "blue",
                     }
                 ],
             },
             key="main_canvas",
         )
 
-        st.success("✅ Drag & Resize funktioniert jetzt stabil")
+        # 🔥 LIVE PREVIEW (hier passiert die Magie)
+        if canvas_result.json_data is not None:
+            objects = canvas_result.json_data["objects"]
+
+            preview = pdf_image.copy()
+
+            for obj in objects:
+                if obj["type"] == "rect":
+                    x = int(obj["left"])
+                    y = int(obj["top"])
+                    w = int(obj["width"] * obj["scaleX"])
+                    h = int(obj["height"] * obj["scaleY"])
+
+                    sig_resized = signature.resize((w, h))
+                    preview.paste(sig_resized, (x, y), sig_resized)
+
+            st.subheader("👀 Live Preview")
+            st.image(preview, use_column_width=True)
+
+        st.success("✅ Stabil + kein Canvas Bug mehr")
