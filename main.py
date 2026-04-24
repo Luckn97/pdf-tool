@@ -2,8 +2,8 @@ import streamlit as st
 import fitz  # PyMuPDF
 from streamlit_drawable_canvas import st_canvas
 from PIL import Image
-import numpy as np
 import io
+import base64
 
 st.set_page_config(layout="wide")
 
@@ -36,8 +36,10 @@ if pdf_file:
 
     pdf_display = pdf_image.resize((display_width, display_height))
 
-    # 👉 🔥 FIX: PIL → NumPy
-    pdf_display_np = np.array(pdf_display)
+    # 🔥 FIX: Image → Base64
+    buffered = io.BytesIO()
+    pdf_display.save(buffered, format="PNG")
+    img_base64 = base64.b64encode(buffered.getvalue()).decode()
 
     # -------------------------
     # SIGNATURE DRAW
@@ -71,7 +73,7 @@ if pdf_file:
         fill_color="rgba(0,0,0,0)",
         stroke_width=1,
         stroke_color="#000000",
-        background_image=pdf_display_np,  # ✅ FIXED
+        background_image=f"data:image/png;base64,{img_base64}",  # ✅ FINAL FIX
         update_streamlit=True,
         height=display_height,
         width=display_width,
