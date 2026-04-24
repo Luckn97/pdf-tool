@@ -5,6 +5,7 @@ from reportlab.pdfgen import canvas as pdf_canvas
 from reportlab.lib.utils import ImageReader
 from io import BytesIO
 from PIL import Image
+import base64
 
 st.set_page_config(layout="wide")
 
@@ -15,7 +16,6 @@ uploaded_pdf = st.file_uploader("Upload PDF", type="pdf")
 
 if uploaded_pdf:
 
-    # Read PDF
     pdf_reader = PdfReader(uploaded_pdf)
     total_pages = len(pdf_reader.pages)
 
@@ -45,8 +45,13 @@ if uploaded_pdf:
             sig_canvas.image_data.astype("uint8")
         )
 
-        # 👉 EINZIGE PDF VIEW + DRAG + RESIZE + PREVIEW
-        st.markdown("### 📄 Place Signature (Drag & Resize directly on PDF)")
+        # 🔥 FIX: convert to base64 for canvas
+        buffered = BytesIO()
+        signature_image.save(buffered, format="PNG")
+        img_base64 = base64.b64encode(buffered.getvalue()).decode()
+        img_url = f"data:image/png;base64,{img_base64}"
+
+        st.markdown("### 📄 Place Signature (Drag & Resize)")
 
         canvas_result = st_canvas(
             fill_color="rgba(0,0,0,0)",
@@ -54,7 +59,7 @@ if uploaded_pdf:
             background_color="#ffffff",
             height=800,
             width=600,
-            drawing_mode="transform",  # 🔥 enables drag + resize
+            drawing_mode="transform",
             initial_drawing={
                 "version": "4.4.0",
                 "objects": [
@@ -65,7 +70,7 @@ if uploaded_pdf:
                         "scaleX": 0.5,
                         "scaleY": 0.5,
                         "angle": 0,
-                        "src": signature_image
+                        "src": img_url  # ✅ FIXED
                     }
                 ]
             },
@@ -74,7 +79,7 @@ if uploaded_pdf:
 
         if st.button("💾 Apply Signature"):
 
-            if canvas_result.json_data:
+            if canvas_result.json_data and len(canvas_result.json_data["objects"]) > 0:
 
                 obj = canvas_result.json_data["objects"][0]
 
@@ -83,7 +88,6 @@ if uploaded_pdf:
                 scale_x = obj["scaleX"]
                 scale_y = obj["scaleY"]
 
-                # Convert signature to bytes
                 sig_buffer = BytesIO()
                 signature_image.save(sig_buffer, format="PNG")
                 sig_buffer.seek(0)
@@ -91,7 +95,6 @@ if uploaded_pdf:
                 packet = BytesIO()
                 can = pdf_canvas(packet)
 
-                # Scale applied
                 width = 200 * scale_x
                 height = 100 * scale_y
 
