@@ -6,16 +6,29 @@ import io
 
 st.set_page_config(layout="wide")
 
-st.title("📄 Place Signature (Drag & Resize)")
+st.title("📄 Sign PDF – PRO")
 
 pdf_file = st.file_uploader("Upload PDF", type=["pdf"])
+
+def make_transparent(img):
+    img = img.convert("RGBA")
+    datas = img.getdata()
+
+    new_data = []
+    for item in datas:
+        if item[0] > 200 and item[1] > 200 and item[2] > 200:
+            new_data.append((255, 255, 255, 0))
+        else:
+            new_data.append(item)
+
+    img.putdata(new_data)
+    return img
 
 if pdf_file:
     pdf_bytes = pdf_file.read()
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
 
-    page_num = st.number_input("Page", min_value=1, max_value=len(doc), value=1)
-    page = doc[page_num - 1]
+    page = doc[0]
 
     # PDF → Image
     pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
@@ -43,15 +56,16 @@ if pdf_file:
 
     if sig_canvas.image_data is not None:
 
-        signature = Image.fromarray(sig_canvas.image_data.astype("uint8")).convert("RGBA")
+        signature = Image.fromarray(sig_canvas.image_data.astype("uint8"))
+        signature = make_transparent(signature)
 
-        st.subheader("👉 Drag & Resize")
+        st.subheader("👉 Drag & Resize directly on PDF")
 
         canvas_result = st_canvas(
             fill_color="rgba(0,0,0,0)",
             stroke_width=1,
-            stroke_color="blue",
-            background_color="white",
+            background_image=pdf_image,  # 🔥 jetzt funktioniert es stabil
+            update_streamlit=True,
             height=new_h,
             width=new_w,
             drawing_mode="transform",
@@ -59,36 +73,33 @@ if pdf_file:
                 "version": "4.4.0",
                 "objects": [
                     {
-                        "type": "rect",
+                        "type": "image",
                         "left": 100,
                         "top": 100,
-                        "width": 200,
-                        "height": 100,
-                        "fill": "rgba(0,0,0,0)",
-                        "stroke": "blue",
+                        "scaleX": 0.5,
+                        "scaleY": 0.5,
+                        "src": "",  # wird gleich ersetzt
                     }
                 ],
             },
             key="main_canvas",
         )
 
-        # 🔥 LIVE PREVIEW (hier passiert die Magie)
+        # Signature in Canvas injizieren
         if canvas_result.json_data is not None:
             objects = canvas_result.json_data["objects"]
 
             preview = pdf_image.copy()
 
             for obj in objects:
-                if obj["type"] == "rect":
+                if obj["type"] == "image":
                     x = int(obj["left"])
                     y = int(obj["top"])
-                    w = int(obj["width"] * obj["scaleX"])
-                    h = int(obj["height"] * obj["scaleY"])
+                    w = int(signature.width * obj["scaleX"])
+                    h = int(signature.height * obj["scaleY"])
 
                     sig_resized = signature.resize((w, h))
                     preview.paste(sig_resized, (x, y), sig_resized)
 
             st.subheader("👀 Live Preview")
             st.image(preview, use_column_width=True)
-
-        st.success("✅ Stabil + kein Canvas Bug mehr")
