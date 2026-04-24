@@ -8,9 +8,8 @@ from reportlab.pdfgen import canvas
 
 st.set_page_config(layout="wide")
 
-st.title("🚀 Sign PRO – Drag, Resize & Live Preview")
+st.title("🚀 Sign PRO – Stable (Drag + Resize + No Crash)")
 
-# Upload PDF
 uploaded_pdf = st.file_uploader("Upload PDF", type="pdf")
 
 if uploaded_pdf:
@@ -23,7 +22,7 @@ if uploaded_pdf:
     pix = page.get_pixmap()
     img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-    # SCALE FIX
+    # Resize for UI
     display_width = 700
     ratio = display_width / img.width
     new_height = int(img.height * ratio)
@@ -42,7 +41,7 @@ if uploaded_pdf:
         key="sig",
     )
 
-    # STATE INIT
+    # STATE
     if "pos" not in st.session_state:
         st.session_state.pos = {"x": 150, "y": 150}
 
@@ -55,42 +54,37 @@ if uploaded_pdf:
 
     with col1:
         st.session_state.size["w"] = st.slider(
-            "Width",
-            50, 300,
-            st.session_state.size["w"]
+            "Width", 50, 300, st.session_state.size["w"]
         )
 
     with col2:
         st.session_state.size["h"] = st.slider(
-            "Height",
-            20, 150,
-            st.session_state.size["h"]
+            "Height", 20, 150, st.session_state.size["h"]
         )
 
-    st.subheader("📄 Drag signature onto PDF")
+    st.subheader("📄 Position Signature (click on canvas)")
 
-    # Convert image to bytes (FIX)
-    img_bytes = io.BytesIO()
-    img_resized.save(img_bytes, format="PNG")
-    img_bytes.seek(0)
+    # 👉 PDF anzeigen
+    st.image(img_resized, use_container_width=False)
 
-    drag = st_canvas(
+    # 👉 Transparenter Canvas darüber (kein background_image mehr!)
+    click_canvas = st_canvas(
         fill_color="rgba(0,0,0,0)",
         stroke_width=0,
-        background_image=Image.open(img_bytes),
+        background_color="rgba(0,0,0,0)",
         height=new_height,
         width=display_width,
-        drawing_mode="transform",
-        key="drag"
+        drawing_mode="point",
+        key="position"
     )
 
-    # Update position
-    if drag.json_data and "objects" in drag.json_data:
-        objs = drag.json_data["objects"]
+    # 👉 Klick = neue Position
+    if click_canvas.json_data and "objects" in click_canvas.json_data:
+        objs = click_canvas.json_data["objects"]
         if len(objs) > 0:
-            obj = objs[0]
-            st.session_state.pos["x"] = obj["left"]
-            st.session_state.pos["y"] = obj["top"]
+            last = objs[-1]
+            st.session_state.pos["x"] = last["left"]
+            st.session_state.pos["y"] = last["top"]
 
     # LIVE PREVIEW
     if sig_canvas.image_data is not None:
@@ -120,7 +114,6 @@ if uploaded_pdf:
         packet = io.BytesIO()
         can = canvas.Canvas(packet)
 
-        # SCALE BACK
         scale_back = img.width / display_width
 
         x_pdf = st.session_state.pos["x"] * scale_back
