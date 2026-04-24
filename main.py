@@ -6,17 +6,19 @@ from reportlab.lib.utils import ImageReader
 from io import BytesIO
 from PIL import Image
 import base64
+import fitz  # 🔥 PyMuPDF
 
 st.set_page_config(layout="wide")
 
-st.title("🚀 Sign PRO – Clean UI")
+st.title("🚀 Sign PRO – Live PDF Preview")
 
-# Upload PDF
 uploaded_pdf = st.file_uploader("Upload PDF", type="pdf")
 
 if uploaded_pdf:
 
-    pdf_reader = PdfReader(uploaded_pdf)
+    pdf_bytes = uploaded_pdf.read()
+
+    pdf_reader = PdfReader(BytesIO(pdf_bytes))
     total_pages = len(pdf_reader.pages)
 
     page_num = st.number_input(
@@ -25,6 +27,19 @@ if uploaded_pdf:
         max_value=total_pages,
         value=1
     )
+
+    # 🔥 PDF → IMAGE (NO pdf2image!)
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    page = doc.load_page(page_num - 1)
+    pix = page.get_pixmap()
+
+    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+    # Convert PDF image to base64
+    bg_buffer = BytesIO()
+    img.save(bg_buffer, format="PNG")
+    bg_base64 = base64.b64encode(bg_buffer.getvalue()).decode()
+    bg_url = f"data:image/png;base64,{bg_base64}"
 
     st.markdown("### ✍️ Draw Signature")
 
@@ -45,18 +60,17 @@ if uploaded_pdf:
             sig_canvas.image_data.astype("uint8")
         )
 
-        # 🔥 FIX: convert to base64 for canvas
-        buffered = BytesIO()
-        signature_image.save(buffered, format="PNG")
-        img_base64 = base64.b64encode(buffered.getvalue()).decode()
-        img_url = f"data:image/png;base64,{img_base64}"
+        sig_buffer = BytesIO()
+        signature_image.save(sig_buffer, format="PNG")
+        sig_base64 = base64.b64encode(sig_buffer.getvalue()).decode()
+        sig_url = f"data:image/png;base64,{sig_base64}"
 
-        st.markdown("### 📄 Place Signature (Drag & Resize)")
+        st.markdown("### 📄 Drag & Resize directly on PDF")
 
         canvas_result = st_canvas(
             fill_color="rgba(0,0,0,0)",
             stroke_width=0,
-            background_color="#ffffff",
+            background_image=img,  # 🔥 REAL PDF HERE
             height=800,
             width=600,
             drawing_mode="transform",
@@ -70,7 +84,7 @@ if uploaded_pdf:
                         "scaleX": 0.5,
                         "scaleY": 0.5,
                         "angle": 0,
-                        "src": img_url  # ✅ FIXED
+                        "src": sig_url
                     }
                 ]
             },
@@ -88,8 +102,6 @@ if uploaded_pdf:
                 scale_x = obj["scaleX"]
                 scale_y = obj["scaleY"]
 
-                sig_buffer = BytesIO()
-                signature_image.save(sig_buffer, format="PNG")
                 sig_buffer.seek(0)
 
                 packet = BytesIO()
@@ -101,7 +113,7 @@ if uploaded_pdf:
                 can.drawImage(
                     ImageReader(sig_buffer),
                     x,
-                    800 - y,
+                    img.height - y,
                     width=width,
                     height=height,
                     mask='auto'
