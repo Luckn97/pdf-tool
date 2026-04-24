@@ -27,7 +27,6 @@ def make_transparent(img):
 if pdf_file:
     pdf_bytes = pdf_file.read()
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-
     page = doc[0]
 
     # PDF → Image
@@ -59,47 +58,25 @@ if pdf_file:
         signature = Image.fromarray(sig_canvas.image_data.astype("uint8"))
         signature = make_transparent(signature)
 
-        st.subheader("👉 Drag & Resize directly on PDF")
+        st.subheader("🎯 Position Signature")
 
-        canvas_result = st_canvas(
-            fill_color="rgba(0,0,0,0)",
-            stroke_width=1,
-            background_image=pdf_image,  # 🔥 jetzt funktioniert es stabil
-            update_streamlit=True,
-            height=new_h,
-            width=new_w,
-            drawing_mode="transform",
-            initial_drawing={
-                "version": "4.4.0",
-                "objects": [
-                    {
-                        "type": "image",
-                        "left": 100,
-                        "top": 100,
-                        "scaleX": 0.5,
-                        "scaleY": 0.5,
-                        "src": "",  # wird gleich ersetzt
-                    }
-                ],
-            },
-            key="main_canvas",
-        )
+        col1, col2 = st.columns(2)
 
-        # Signature in Canvas injizieren
-        if canvas_result.json_data is not None:
-            objects = canvas_result.json_data["objects"]
+        with col1:
+            x = st.slider("X", 0, new_w, 200)
+            y = st.slider("Y", 0, new_h, 200)
 
-            preview = pdf_image.copy()
+        with col2:
+            scale_sig = st.slider("Size", 0.1, 1.5, 0.5)
 
-            for obj in objects:
-                if obj["type"] == "image":
-                    x = int(obj["left"])
-                    y = int(obj["top"])
-                    w = int(signature.width * obj["scaleX"])
-                    h = int(signature.height * obj["scaleY"])
+        # Resize signature
+        w = int(signature.width * scale_sig)
+        h = int(signature.height * scale_sig)
+        sig_resized = signature.resize((w, h))
 
-                    sig_resized = signature.resize((w, h))
-                    preview.paste(sig_resized, (x, y), sig_resized)
+        # Overlay
+        preview = pdf_image.copy()
+        preview.paste(sig_resized, (x, y), sig_resized)
 
-            st.subheader("👀 Live Preview")
-            st.image(preview, use_column_width=True)
+        st.subheader("👀 Live Preview")
+        st.image(preview, use_column_width=True)
