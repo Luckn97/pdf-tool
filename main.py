@@ -48,15 +48,20 @@ if uploaded_pdf:
     if "pos" not in st.session_state:
         st.session_state.pos = {"x": 200, "y": 200}
 
-    drag = st_canvas(
-        fill_color="rgba(0,0,0,0)",
-        stroke_width=0,
-        background_image=img_resized,
-        height=new_height,
-        width=display_width,
-        drawing_mode="transform",
-        key="drag"
-    )
+   # 🔥 PIL → Bytes konvertieren
+img_bytes = io.BytesIO()
+img_resized.save(img_bytes, format="PNG")
+img_bytes.seek(0)
+
+drag = st_canvas(
+    fill_color="rgba(0,0,0,0)",
+    stroke_width=0,
+    background_image=Image.open(img_bytes),
+    height=new_height,
+    width=display_width,
+    drawing_mode="transform",
+    key="drag"
+)
 
     # Update position
     if drag.json_data and "objects" in drag.json_data:
