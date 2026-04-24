@@ -6,11 +6,11 @@ from reportlab.lib.utils import ImageReader
 from io import BytesIO
 from PIL import Image
 import base64
-import fitz  # 🔥 PyMuPDF
+import fitz  # PyMuPDF
 
 st.set_page_config(layout="wide")
 
-st.title("🚀 Sign PRO – Live PDF Preview")
+st.title("🚀 Sign PRO – Final Stable")
 
 uploaded_pdf = st.file_uploader("Upload PDF", type="pdf")
 
@@ -28,14 +28,14 @@ if uploaded_pdf:
         value=1
     )
 
-    # 🔥 PDF → IMAGE (NO pdf2image!)
+    # 🔥 PDF → IMAGE
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     page = doc.load_page(page_num - 1)
     pix = page.get_pixmap()
 
     img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-    # Convert PDF image to base64
+    # 🔥 FIX: convert background to base64
     bg_buffer = BytesIO()
     img.save(bg_buffer, format="PNG")
     bg_base64 = base64.b64encode(bg_buffer.getvalue()).decode()
@@ -70,7 +70,7 @@ if uploaded_pdf:
         canvas_result = st_canvas(
             fill_color="rgba(0,0,0,0)",
             stroke_width=0,
-            background_image=img,  # 🔥 REAL PDF HERE
+            background_image=bg_url,  # ✅ FIXED HERE
             height=800,
             width=600,
             drawing_mode="transform",
