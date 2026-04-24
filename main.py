@@ -1,12 +1,13 @@
 import streamlit as st
-from PIL import Image
-from streamlit_drawable_canvas import st_canvas
+import streamlit.components.v1 as components
 import fitz
+from PIL import Image
 import io
+import base64
 
 st.set_page_config(layout="wide")
 
-st.title("📄 Sign PDF – PRO")
+st.title("🚀 Sign PDF – REAL PRO")
 
 pdf_file = st.file_uploader("Upload PDF", type=["pdf"])
 
@@ -29,7 +30,6 @@ if pdf_file:
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     page = doc[0]
 
-    # PDF → Image
     pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
     pdf_image = Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
 
@@ -40,43 +40,97 @@ if pdf_file:
     new_h = int(pdf_image.height * scale)
     pdf_image = pdf_image.resize((new_w, new_h))
 
+    # Convert PDF image to base64
+    buffered = io.BytesIO()
+    pdf_image.save(buffered, format="PNG")
+    pdf_base64 = base64.b64encode(buffered.getvalue()).decode()
+
     st.subheader("✍️ Draw Signature")
 
-    sig_canvas = st_canvas(
-        fill_color="rgba(0,0,0,0)",
+    sig_canvas = st.canvas(
         stroke_width=3,
         stroke_color="black",
         background_color="white",
         height=150,
         width=400,
-        drawing_mode="freedraw",
-        key="sig",
     )
 
     if sig_canvas.image_data is not None:
-
         signature = Image.fromarray(sig_canvas.image_data.astype("uint8"))
         signature = make_transparent(signature)
 
-        st.subheader("🎯 Position Signature")
+        buffered = io.BytesIO()
+        signature.save(buffered, format="PNG")
+        sig_base64 = base64.b64encode(buffered.getvalue()).decode()
 
-        col1, col2 = st.columns(2)
+        st.subheader("👉 Drag & Resize direkt auf PDF")
 
-        with col1:
-            x = st.slider("X", 0, new_w, 200)
-            y = st.slider("Y", 0, new_h, 200)
+        components.html(f"""
+        <html>
+        <head>
+        <style>
+        body {{
+            margin:0;
+            overflow:hidden;
+        }}
+        #container {{
+            position: relative;
+            width: {new_w}px;
+            height: {new_h}px;
+        }}
+        #pdf {{
+            position:absolute;
+            top:0;
+            left:0;
+            width:100%;
+        }}
+        #sig {{
+            position:absolute;
+            top:100px;
+            left:100px;
+            width:150px;
+            cursor:move;
+        }}
+        </style>
+        </head>
 
-        with col2:
-            scale_sig = st.slider("Size", 0.1, 1.5, 0.5)
+        <body>
+        <div id="container">
+            <img id="pdf" src="data:image/png;base64,{pdf_base64}" />
+            <img id="sig" src="data:image/png;base64,{sig_base64}" />
+        </div>
 
-        # Resize signature
-        w = int(signature.width * scale_sig)
-        h = int(signature.height * scale_sig)
-        sig_resized = signature.resize((w, h))
+        <script>
+        let sig = document.getElementById("sig");
 
-        # Overlay
-        preview = pdf_image.copy()
-        preview.paste(sig_resized, (x, y), sig_resized)
+        let offsetX = 0;
+        let offsetY = 0;
+        let isDragging = false;
 
-        st.subheader("👀 Live Preview")
-        st.image(preview, use_column_width=True)
+        sig.onmousedown = function(e) {{
+            isDragging = true;
+            offsetX = e.clientX - sig.offsetLeft;
+            offsetY = e.clientY - sig.offsetTop;
+        }}
+
+        document.onmouseup = function() {{
+            isDragging = false;
+        }}
+
+        document.onmousemove = function(e) {{
+            if (isDragging) {{
+                sig.style.left = (e.clientX - offsetX) + "px";
+                sig.style.top = (e.clientY - offsetY) + "px";
+            }}
+        }}
+
+        // Resize via scroll
+        sig.onwheel = function(e) {{
+            e.preventDefault();
+            let scale = e.deltaY < 0 ? 1.05 : 0.95;
+            sig.style.width = sig.offsetWidth * scale + "px";
+        }}
+        </script>
+        </body>
+        </html>
+        """, height=new_h+50)
