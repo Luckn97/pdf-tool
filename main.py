@@ -1,120 +1,90 @@
 import streamlit as st
-import fitz  # PyMuPDF
-from streamlit_drawable_canvas import st_canvas
 from PIL import Image
+from streamlit_drawable_canvas import st_canvas
+import fitz  # PyMuPDF
 import io
-import base64
 
 st.set_page_config(layout="wide")
 
-st.title("📄 Drag & Resize directly on PDF")
+st.title("📄 Place Signature (Drag & Resize)")
 
-# -------------------------
-# PDF UPLOAD
-# -------------------------
+# Upload PDF
 pdf_file = st.file_uploader("Upload PDF", type=["pdf"])
 
 if pdf_file:
-
+    # PDF öffnen
     pdf_bytes = pdf_file.read()
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    page = doc.load_page(0)
 
-    # PDF → Image
-    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+    page_num = st.number_input("Page", min_value=1, max_value=len(doc), value=1)
+    page = doc[page_num - 1]
+
+    # PDF → Image (sauber & stabil)
+    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # höhere Qualität
     img_bytes = pix.tobytes("png")
+
     pdf_image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
 
-    # -------------------------
-    # SCALE
-    # -------------------------
+    # FIX: sichere Skalierung
     MAX_WIDTH = 900
-    scale = min(1, MAX_WIDTH / pdf_image.width)
+    scale = MAX_WIDTH / pdf_image.width
+    new_width = int(pdf_image.width * scale)
+    new_height = int(pdf_image.height * scale)
 
-    display_width = int(pdf_image.width * scale)
-    display_height = int(pdf_image.height * scale)
+    pdf_image = pdf_image.resize((new_width, new_height))
 
-    pdf_display = pdf_image.resize((display_width, display_height))
+    st.write("👉 Drag & resize your signature directly on the PDF")
 
-    # 🔥 FIX: Image → Base64
-    buffered = io.BytesIO()
-    pdf_display.save(buffered, format="PNG")
-    img_base64 = base64.b64encode(buffered.getvalue()).decode()
-
-    # -------------------------
-    # SIGNATURE DRAW
-    # -------------------------
+    # Signatur zeichnen
     st.subheader("✍️ Draw Signature")
 
-    sig_canvas = st_canvas(
+    signature_canvas = st_canvas(
         fill_color="rgba(0,0,0,0)",
-        stroke_width=2,
-        stroke_color="#000000",
-        background_color="#ffffff",
+        stroke_width=3,
+        stroke_color="black",
+        background_color="white",
         height=150,
         width=400,
         drawing_mode="freedraw",
-        key="sig",
+        key="signature",
     )
 
-    signature_img = None
+    signature_image = None
 
-    if sig_canvas.image_data is not None:
-        signature_img = Image.fromarray(
-            sig_canvas.image_data.astype("uint8")
+    if signature_canvas.image_data is not None:
+        signature_image = Image.fromarray(
+            signature_canvas.image_data.astype("uint8")
         ).convert("RGBA")
 
-    # -------------------------
-    # MAIN CANVAS
-    # -------------------------
-    st.subheader("🖱️ Place Signature (Drag & Resize)")
+    # 🔥 WICHTIGER FIX:
+    # Canvas darf NIE None als background_image bekommen
+    if pdf_image is not None and signature_image is not None:
 
-    canvas_result = st_canvas(
-        fill_color="rgba(0,0,0,0)",
-        stroke_width=1,
-        stroke_color="#000000",
-        background_image=f"data:image/png;base64,{img_base64}",  # ✅ FINAL FIX
-        update_streamlit=True,
-        height=display_height,
-        width=display_width,
-        drawing_mode="transform",
-        key="main_canvas",
-    )
+        # Haupt-Canvas (PDF + Drag & Resize)
+        canvas_result = st_canvas(
+            fill_color="rgba(0,0,0,0)",
+            stroke_width=1,
+            stroke_color="blue",
+            background_image=pdf_image,  # ← jetzt garantiert gültig
+            update_streamlit=True,
+            height=new_height,
+            width=new_width,
+            drawing_mode="transform",  # 🔥 Drag + Resize Mode
+            initial_drawing={
+                "version": "4.4.0",
+                "objects": [
+                    {
+                        "type": "image",
+                        "left": 50,
+                        "top": 50,
+                        "scaleX": 0.5,
+                        "scaleY": 0.5,
+                        "angle": 0,
+                        "src": signature_canvas.image_data.tolist(),
+                    }
+                ],
+            },
+            key="main_canvas",
+        )
 
-    # -------------------------
-    # APPLY SIGNATURE
-    # -------------------------
-    if st.button("💾 Apply Signature"):
-
-        if signature_img and canvas_result.json_data:
-
-            objects = canvas_result.json_data["objects"]
-
-            if len(objects) > 0:
-                obj = objects[-1]
-
-                left = obj["left"] / scale
-                top = obj["top"] / scale
-                scale_x = obj["scaleX"] / scale
-                scale_y = obj["scaleY"] / scale
-
-                # Resize signature
-                new_w = int(signature_img.width * scale_x)
-                new_h = int(signature_img.height * scale_y)
-                sig_resized = signature_img.resize((new_w, new_h))
-
-                # Overlay
-                pdf_image_rgba = pdf_image.convert("RGBA")
-                pdf_image_rgba.paste(sig_resized, (int(left), int(top)), sig_resized)
-
-                # Save PDF
-                output = io.BytesIO()
-                pdf_image_rgba.convert("RGB").save(output, format="PDF")
-
-                st.success("✅ Done!")
-                st.download_button(
-                    "⬇️ Download signed PDF",
-                    data=output.getvalue(),
-                    file_name="signed.pdf",
-                    mime="application/pdf",
-                )
+        st.success("👉 Position & Größe direkt auf dem PDF anpassen")
