@@ -1,5 +1,5 @@
 import streamlit as st
-from pdf2image import convert_from_bytes
+import fitz  # PyMuPDF
 from streamlit_drawable_canvas import st_canvas
 from PIL import Image
 import io
@@ -8,18 +8,23 @@ from reportlab.pdfgen import canvas
 
 st.set_page_config(layout="wide")
 
-st.title("🚀 Sign PRO – Drag & Drop Edition")
+st.title("🚀 Sign PRO – Stable Version (No pdf2image)")
 
 # Upload PDF
 uploaded_pdf = st.file_uploader("Upload PDF", type="pdf")
 
 if uploaded_pdf:
     pdf_bytes = uploaded_pdf.read()
-    images = convert_from_bytes(pdf_bytes, first_page=1, last_page=1)
 
-    # 🔥 SCALE FIX (PDF kleiner machen)
+    # 📄 Load PDF with PyMuPDF
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    page = doc.load_page(0)
+
+    pix = page.get_pixmap()
+    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+    # 🔥 SCALE FIX
     display_width = 700
-    img = images[0]
     ratio = display_width / img.width
     new_height = int(img.height * ratio)
     img_resized = img.resize((display_width, new_height))
@@ -39,11 +44,10 @@ if uploaded_pdf:
 
     st.subheader("📄 Drag signature onto PDF")
 
-    # 🧠 STATE für Position
+    # Position State
     if "pos" not in st.session_state:
         st.session_state.pos = {"x": 200, "y": 200}
 
-    # 👉 Drag Canvas (unsichtbar, nur Movement)
     drag = st_canvas(
         fill_color="rgba(0,0,0,0)",
         stroke_width=0,
@@ -54,7 +58,7 @@ if uploaded_pdf:
         key="drag"
     )
 
-    # 🧠 Position updaten
+    # Update position
     if drag.json_data and "objects" in drag.json_data:
         objs = drag.json_data["objects"]
         if len(objs) > 0:
@@ -62,7 +66,7 @@ if uploaded_pdf:
             st.session_state.pos["x"] = obj["left"]
             st.session_state.pos["y"] = obj["top"]
 
-    # 🔥 LIVE PREVIEW Overlay
+    # 🔥 LIVE PREVIEW
     if sig_canvas.image_data is not None:
         sig_img = Image.fromarray(sig_canvas.image_data.astype("uint8"))
 
@@ -82,11 +86,11 @@ if uploaded_pdf:
         packet = io.BytesIO()
         can = canvas.Canvas(packet)
 
-        # 🔥 WICHTIG: zurück skalieren auf echtes PDF
+        # 🔥 Skalierung zurück ins echte PDF
         scale_back = img.width / display_width
 
         x_pdf = st.session_state.pos["x"] * scale_back
-        y_pdf = (img.height - (st.session_state.pos["y"] * scale_back))
+        y_pdf = img.height - (st.session_state.pos["y"] * scale_back)
 
         sig_buffer = io.BytesIO()
         sig_img.save(sig_buffer, format="PNG")
@@ -107,8 +111,7 @@ if uploaded_pdf:
         reader = PdfReader(io.BytesIO(pdf_bytes))
         writer = PdfWriter()
 
-        from PyPDF2 import PdfReader as RLReader
-        overlay_pdf = RLReader(packet)
+        overlay_pdf = PdfReader(packet)
 
         page = reader.pages[0]
         page.merge_page(overlay_pdf.pages[0])
