@@ -8,7 +8,7 @@ from reportlab.pdfgen import canvas
 
 st.set_page_config(layout="wide")
 
-st.title("🚀 Sign PRO – Stable Version (No pdf2image)")
+st.title("🚀 Sign PRO – Drag, Resize & Live Preview")
 
 # Upload PDF
 uploaded_pdf = st.file_uploader("Upload PDF", type="pdf")
@@ -16,14 +16,14 @@ uploaded_pdf = st.file_uploader("Upload PDF", type="pdf")
 if uploaded_pdf:
     pdf_bytes = uploaded_pdf.read()
 
-    # 📄 Load PDF with PyMuPDF
+    # Load PDF
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     page = doc.load_page(0)
 
     pix = page.get_pixmap()
     img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-    # 🔥 SCALE FIX
+    # SCALE FIX
     display_width = 700
     ratio = display_width / img.width
     new_height = int(img.height * ratio)
@@ -42,26 +42,47 @@ if uploaded_pdf:
         key="sig",
     )
 
+    # STATE INIT
+    if "pos" not in st.session_state:
+        st.session_state.pos = {"x": 150, "y": 150}
+
+    if "size" not in st.session_state:
+        st.session_state.size = {"w": 120, "h": 40}
+
+    st.subheader("🎛 Resize Signature")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.session_state.size["w"] = st.slider(
+            "Width",
+            50, 300,
+            st.session_state.size["w"]
+        )
+
+    with col2:
+        st.session_state.size["h"] = st.slider(
+            "Height",
+            20, 150,
+            st.session_state.size["h"]
+        )
+
     st.subheader("📄 Drag signature onto PDF")
 
-    # Position State
-    if "pos" not in st.session_state:
-        st.session_state.pos = {"x": 200, "y": 200}
+    # Convert image to bytes (FIX)
+    img_bytes = io.BytesIO()
+    img_resized.save(img_bytes, format="PNG")
+    img_bytes.seek(0)
 
-   # 🔥 PIL → Bytes konvertieren
-img_bytes = io.BytesIO()
-img_resized.save(img_bytes, format="PNG")
-img_bytes.seek(0)
-
-drag = st_canvas(
-    fill_color="rgba(0,0,0,0)",
-    stroke_width=0,
-    background_image=Image.open(img_bytes),
-    height=new_height,
-    width=display_width,
-    drawing_mode="transform",
-    key="drag"
-)
+    drag = st_canvas(
+        fill_color="rgba(0,0,0,0)",
+        stroke_width=0,
+        background_image=Image.open(img_bytes),
+        height=new_height,
+        width=display_width,
+        drawing_mode="transform",
+        key="drag"
+    )
 
     # Update position
     if drag.json_data and "objects" in drag.json_data:
@@ -71,27 +92,35 @@ drag = st_canvas(
             st.session_state.pos["x"] = obj["left"]
             st.session_state.pos["y"] = obj["top"]
 
-    # 🔥 LIVE PREVIEW
+    # LIVE PREVIEW
     if sig_canvas.image_data is not None:
         sig_img = Image.fromarray(sig_canvas.image_data.astype("uint8"))
 
         overlay = img_resized.copy()
+        resized_sig = sig_img.resize((
+            st.session_state.size["w"],
+            st.session_state.size["h"]
+        ))
+
         overlay.paste(
-            sig_img.resize((120, 40)),
-            (int(st.session_state.pos["x"]), int(st.session_state.pos["y"])),
-            sig_img.resize((120, 40))
+            resized_sig,
+            (
+                int(st.session_state.pos["x"]),
+                int(st.session_state.pos["y"])
+            ),
+            resized_sig
         )
 
         st.image(overlay, caption="Live Preview")
 
-    # 💾 EXPORT
+    # EXPORT
     if st.button("✅ Apply Signature to PDF"):
         sig_img = Image.fromarray(sig_canvas.image_data.astype("uint8"))
 
         packet = io.BytesIO()
         can = canvas.Canvas(packet)
 
-        # 🔥 Skalierung zurück ins echte PDF
+        # SCALE BACK
         scale_back = img.width / display_width
 
         x_pdf = st.session_state.pos["x"] * scale_back
@@ -105,8 +134,8 @@ drag = st_canvas(
             Image.open(sig_buffer),
             x_pdf,
             y_pdf,
-            width=150,
-            height=50,
+            width=st.session_state.size["w"] * scale_back,
+            height=st.session_state.size["h"] * scale_back,
             mask='auto'
         )
 
