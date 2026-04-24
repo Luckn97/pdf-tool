@@ -3,7 +3,7 @@ from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 import fitz
 import io
-import base64
+import numpy as np
 
 st.set_page_config(layout="wide")
 
@@ -18,24 +18,22 @@ if pdf_file:
     page_num = st.number_input("Page", min_value=1, max_value=len(doc), value=1)
     page = doc[page_num - 1]
 
-    # PDF → Image
+    # PDF → Image (SAFE)
     pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
     img_bytes = pix.tobytes("png")
 
     pdf_image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
 
-    # Resize
+    # Resize für UI
     MAX_WIDTH = 900
     scale = MAX_WIDTH / pdf_image.width
     new_w = int(pdf_image.width * scale)
     new_h = int(pdf_image.height * scale)
+
     pdf_image = pdf_image.resize((new_w, new_h))
 
-    # 🔥 BASE64 FIX (wichtig!)
-    buffered = io.BytesIO()
-    pdf_image.save(buffered, format="PNG")
-    img_str = base64.b64encode(buffered.getvalue()).decode()
-    bg_url = f"data:image/png;base64,{img_str}"
+    # 🔥 WICHTIG: in numpy umwandeln (verhindert Streamlit Bug)
+    bg_array = np.array(pdf_image)
 
     st.subheader("✍️ Draw Signature")
 
@@ -58,9 +56,7 @@ if pdf_file:
             fill_color="rgba(0,0,0,0)",
             stroke_width=1,
             stroke_color="blue",
-            background_color="white",
-            background_image=None,  # wichtig!
-            background_image_url=bg_url,  # 🔥 HIER PASSIERT DIE MAGIE
+            background_image=bg_array,  # 🔥 DAS ist der Fix
             update_streamlit=True,
             height=new_h,
             width=new_w,
@@ -82,4 +78,4 @@ if pdf_file:
             key="main_canvas",
         )
 
-        st.success("✅ Drag & Resize funktioniert jetzt korrekt!")
+        st.success("✅ Drag & Resize funktioniert jetzt stabil")
