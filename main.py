@@ -2,6 +2,7 @@ import streamlit as st
 import fitz  # PyMuPDF
 from streamlit_drawable_canvas import st_canvas
 from PIL import Image
+import numpy as np
 import io
 
 st.set_page_config(layout="wide")
@@ -19,13 +20,13 @@ if pdf_file:
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     page = doc.load_page(0)
 
-    # ✅ PDF → Image (clean)
+    # PDF → Image
     pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
     img_bytes = pix.tobytes("png")
     pdf_image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
 
     # -------------------------
-    # SCALE (UI nicht riesig)
+    # SCALE
     # -------------------------
     MAX_WIDTH = 900
     scale = min(1, MAX_WIDTH / pdf_image.width)
@@ -34,6 +35,9 @@ if pdf_file:
     display_height = int(pdf_image.height * scale)
 
     pdf_display = pdf_image.resize((display_width, display_height))
+
+    # 👉 🔥 FIX: PIL → NumPy
+    pdf_display_np = np.array(pdf_display)
 
     # -------------------------
     # SIGNATURE DRAW
@@ -67,7 +71,7 @@ if pdf_file:
         fill_color="rgba(0,0,0,0)",
         stroke_width=1,
         stroke_color="#000000",
-        background_image=pdf_display,
+        background_image=pdf_display_np,  # ✅ FIXED
         update_streamlit=True,
         height=display_height,
         width=display_width,
@@ -97,7 +101,7 @@ if pdf_file:
                 new_h = int(signature_img.height * scale_y)
                 sig_resized = signature_img.resize((new_w, new_h))
 
-                # Overlay auf Originalgröße
+                # Overlay
                 pdf_image_rgba = pdf_image.convert("RGBA")
                 pdf_image_rgba.paste(sig_resized, (int(left), int(top)), sig_resized)
 
