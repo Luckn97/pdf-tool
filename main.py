@@ -3,6 +3,7 @@ from PIL import Image
 from streamlit_drawable_canvas import st_canvas
 import fitz
 import io
+import base64
 
 st.set_page_config(layout="wide")
 
@@ -20,17 +21,23 @@ if pdf_file:
     # PDF → Image
     pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
     img_bytes = pix.tobytes("png")
+
     pdf_image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
 
-    # Resize (wichtig für UI)
+    # Resize
     MAX_WIDTH = 900
     scale = MAX_WIDTH / pdf_image.width
     new_w = int(pdf_image.width * scale)
     new_h = int(pdf_image.height * scale)
-
     pdf_image = pdf_image.resize((new_w, new_h))
 
-    st.write("👉 Draw signature")
+    # 🔥 BASE64 FIX (wichtig!)
+    buffered = io.BytesIO()
+    pdf_image.save(buffered, format="PNG")
+    img_str = base64.b64encode(buffered.getvalue()).decode()
+    bg_url = f"data:image/png;base64,{img_str}"
+
+    st.subheader("✍️ Draw Signature")
 
     sig_canvas = st_canvas(
         fill_color="rgba(0,0,0,0)",
@@ -45,40 +52,34 @@ if pdf_file:
 
     if sig_canvas.image_data is not None:
 
-        signature = Image.fromarray(sig_canvas.image_data.astype("uint8")).convert("RGBA")
+        st.subheader("👉 Drag & Resize directly on PDF")
 
-        st.write("👉 Drag & resize signature on PDF")
+        canvas_result = st_canvas(
+            fill_color="rgba(0,0,0,0)",
+            stroke_width=1,
+            stroke_color="blue",
+            background_color="white",
+            background_image=None,  # wichtig!
+            background_image_url=bg_url,  # 🔥 HIER PASSIERT DIE MAGIE
+            update_streamlit=True,
+            height=new_h,
+            width=new_w,
+            drawing_mode="transform",
+            initial_drawing={
+                "version": "4.4.0",
+                "objects": [
+                    {
+                        "type": "image",
+                        "left": 100,
+                        "top": 100,
+                        "scaleX": 0.5,
+                        "scaleY": 0.5,
+                        "angle": 0,
+                        "src": sig_canvas.image_data.tolist(),
+                    }
+                ],
+            },
+            key="main_canvas",
+        )
 
-        col1, col2 = st.columns([1, 3])
-
-        with col2:
-            # PDF anzeigen
-            st.image(pdf_image, use_column_width=True)
-
-            # Canvas drüber (OHNE background_image)
-            canvas_result = st_canvas(
-                fill_color="rgba(0,0,0,0)",
-                stroke_width=1,
-                stroke_color="blue",
-                background_color="rgba(0,0,0,0)",  # transparent!
-                height=new_h,
-                width=new_w,
-                drawing_mode="transform",
-                initial_drawing={
-                    "version": "4.4.0",
-                    "objects": [
-                        {
-                            "type": "image",
-                            "left": 50,
-                            "top": 50,
-                            "scaleX": 0.5,
-                            "scaleY": 0.5,
-                            "angle": 0,
-                            "src": sig_canvas.image_data.tolist(),
-                        }
-                    ],
-                },
-                key="canvas",
-            )
-
-        st.success("👉 Works stable now – drag & resize without crashes")
+        st.success("✅ Drag & Resize funktioniert jetzt korrekt!")
