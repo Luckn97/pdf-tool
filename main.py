@@ -19,17 +19,14 @@ if pdf_file:
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     page = doc.load_page(0)
 
-    # 🔥 PDF → Image (stabilisiert)
+    # ✅ PDF → Image (clean)
     pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
     img_bytes = pix.tobytes("png")
-
-    # 👉 WICHTIG: sauber neu laden
     pdf_image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-    pdf_image = Image.fromarray(
-        pdf_image.resize(pdf_image.size)  # forces clean memory
-    )
 
-    # Skalierung (damit UI nicht riesig wird)
+    # -------------------------
+    # SCALE (UI nicht riesig)
+    # -------------------------
     MAX_WIDTH = 900
     scale = min(1, MAX_WIDTH / pdf_image.width)
 
@@ -70,7 +67,7 @@ if pdf_file:
         fill_color="rgba(0,0,0,0)",
         stroke_width=1,
         stroke_color="#000000",
-        background_image=pdf_display,  # ✅ jetzt stabil
+        background_image=pdf_display,
         update_streamlit=True,
         height=display_height,
         width=display_width,
@@ -100,7 +97,7 @@ if pdf_file:
                 new_h = int(signature_img.height * scale_y)
                 sig_resized = signature_img.resize((new_w, new_h))
 
-                # Overlay auf Original PDF Größe
+                # Overlay auf Originalgröße
                 pdf_image_rgba = pdf_image.convert("RGBA")
                 pdf_image_rgba.paste(sig_resized, (int(left), int(top)), sig_resized)
 
