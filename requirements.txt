@@ -1,9 +1,6 @@
 streamlit
-pdfplumber
-pillow
-numpy
-scikit-image
+PyMuPDF
 streamlit-drawable-canvas
-reportlab
+pillow
 PyPDF2
-pymupdf
+reportlab
