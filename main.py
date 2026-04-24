@@ -17,13 +17,26 @@ if pdf_file:
 
     pdf_bytes = pdf_file.read()
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-
     page = doc.load_page(0)
 
-    # 🔥 Render PDF → PIL Image
-    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))  # höhere Qualität
+    # 🔥 PDF → Image (stabilisiert)
+    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
     img_bytes = pix.tobytes("png")
+
+    # 👉 WICHTIG: sauber neu laden
     pdf_image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+    pdf_image = Image.fromarray(
+        pdf_image.resize(pdf_image.size)  # forces clean memory
+    )
+
+    # Skalierung (damit UI nicht riesig wird)
+    MAX_WIDTH = 900
+    scale = min(1, MAX_WIDTH / pdf_image.width)
+
+    display_width = int(pdf_image.width * scale)
+    display_height = int(pdf_image.height * scale)
+
+    pdf_display = pdf_image.resize((display_width, display_height))
 
     # -------------------------
     # SIGNATURE DRAW
@@ -49,7 +62,7 @@ if pdf_file:
         ).convert("RGBA")
 
     # -------------------------
-    # MAIN DRAG AREA
+    # MAIN CANVAS
     # -------------------------
     st.subheader("🖱️ Place Signature (Drag & Resize)")
 
@@ -57,16 +70,16 @@ if pdf_file:
         fill_color="rgba(0,0,0,0)",
         stroke_width=1,
         stroke_color="#000000",
-        background_image=pdf_image,  # ✅ FIXED
+        background_image=pdf_display,  # ✅ jetzt stabil
         update_streamlit=True,
-        height=600,
-        width=pdf_image.width if pdf_image.width < 900 else 900,
+        height=display_height,
+        width=display_width,
         drawing_mode="transform",
         key="main_canvas",
     )
 
     # -------------------------
-    # EXPORT
+    # APPLY SIGNATURE
     # -------------------------
     if st.button("💾 Apply Signature"):
 
@@ -77,21 +90,21 @@ if pdf_file:
             if len(objects) > 0:
                 obj = objects[-1]
 
-                left = obj["left"]
-                top = obj["top"]
-                scale_x = obj["scaleX"]
-                scale_y = obj["scaleY"]
+                left = obj["left"] / scale
+                top = obj["top"] / scale
+                scale_x = obj["scaleX"] / scale
+                scale_y = obj["scaleY"] / scale
 
                 # Resize signature
                 new_w = int(signature_img.width * scale_x)
                 new_h = int(signature_img.height * scale_y)
                 sig_resized = signature_img.resize((new_w, new_h))
 
-                # Overlay auf PDF
+                # Overlay auf Original PDF Größe
                 pdf_image_rgba = pdf_image.convert("RGBA")
                 pdf_image_rgba.paste(sig_resized, (int(left), int(top)), sig_resized)
 
-                # Save to PDF
+                # Save PDF
                 output = io.BytesIO()
                 pdf_image_rgba.convert("RGB").save(output, format="PDF")
 
